@@ -16,8 +16,14 @@
 # Notes:
 # - The LANGUAGE_TOOL_HOME environment variable specified the distribution
 # directory for the grammar checker. See run-languagetool-grammar-checker.sh.
+# - Underylying support downloaded from
+#   https://extensions.openoffice.org/en/projectrelease/languagetool-21
 #
-# Copyright (c) 2012-2018 Thomas P. O'Hara
+# Copyright (c) 2012-2020 Thomas P. O'Hara
+#
+#-------------------------------------------------------------------------------
+# TODO:
+# - ???
 #
 
 #------------------------------------------------------------------------

@@ -2,7 +2,7 @@
 #
 # Support for performing Term Frequency (TF) Inverse Document Frequency (IDF)
 # using ngrams. This is provides a wrapper class around the tfidf package
-# by elzilrac ().
+# by elzilrac (https://github.com/elzilrac/tf-idf).
 #
 # For details on computations, see following Wikipedia pages:
 #    https://en.wikipedia.org/wiki/Tf-idf
@@ -10,15 +10,16 @@
 #
 # Note:
 # - This provides the wrapper class ngram_tfidf_analysis around tfidf for use
-#   in applications like Visual Diff Search that use text from external sources.
+#   in applications like Visual Diff Search (VDS) that use text from external sources.
 # - See compute_tfidf.py for computing tfidf over files.
 #
 # TODO:
 # - Add filtering (e.g., subsumption, all numbers).
 #
-# Copyright (c) 2018 Scrappycito, LLC
+# Copyright (c) 2018-2020 Thomas P. O'Hara
 #
 
+## TODO: fix description (e.g., add pointer to VDS code)
 """TF-IDF using phrasal terms via ngram analysis"""
 
 # Standard packages
@@ -26,7 +27,7 @@
 ## import os
 import re
 import sys
-    
+
 # Installed packages
 import tfidf
 from tfidf.corpus import Corpus as tfidf_corpus
@@ -35,6 +36,7 @@ from tfidf.preprocess import Preprocessor as tfidf_preprocessor
 # Local packages
 import debug
 import system
+import tpo_common as tpo
 
 PREPROCESSOR_LANG = system.getenv_text("PREPROCESSOR_LANG", "english")
 # NOTE: add MIN_NGRAM_SIZE (e.g., 2) as alternative to ALL_NGRAMS (implies 1)
@@ -48,6 +50,9 @@ TF_WEIGHTING = system.getenv_text("TF_WEIGHTING", DEFAULT_TF_WEIGHTING)
 DEFAULT_IDF_WEIGHTING = 'smooth' if USE_NGRAM_SMOOTHING else 'basic'
 IDF_WEIGHTING = system.getenv_text("IDF_WEIGHTING", DEFAULT_IDF_WEIGHTING)
 MAX_TERMS = system.getenv_int("MAX_TERMS", 100)
+ALLOW_NGRAM_SUBSUMPTION = system.getenv_boolean("ALLOW_NGRAM_SUBSUMPTION", False)
+## TODO: ALLOW_NGRAM_OVERLAP = system.getenv_boolean("ALLOW_NGRAM_SUBSUMPTION", False)
+ALLOW_NUMERIC_NGRAMS = system.getenv_boolean("ALLOW_NUMERIC_NGRAMS", False)
 
 try:
     # Note major and minor revision values are assumed to be integral
@@ -92,16 +97,57 @@ class ngram_tfidf_analysis(object):
 
     def get_top_terms(self, doc_id, tf_weight=TF_WEIGHTING, idf_weight=IDF_WEIGHTING, limit=MAX_TERMS):
         """Return list of (term, weight) tuples for DOC_ID up to LIMIT count, using TF_WEIGHT and IDF_WEIGHT schemes
-        Note: 
-            TF_WEIGHT in {basic, binary, freq, log, norm_50}
-            IDF_WEIGHT in {basic freq, max, prob, smooth}
+        Notes:
+        - TF_WEIGHT in {basic, binary, freq, log, norm_50}
+        - IDF_WEIGHT in {basic freq, max, prob, smooth}
+        - The top ngrams omit blanks and other relics of tokenization
+        - Lower weighted ngrams are omitted if subsumed by higher (or vice versa)
         """
+        # Get objects for top terms
+        # ex: top_terms=[CorpusKeyword(term=<tfidf.dockeyword.DocKeyword object at 0x7f08b43bf550>, ngram=u'patuxent river', score=0.0015548719642054984), ... CorpusKeyword(term=<tfidf.dockeyword.DocKeyword object at 0x7f08b43cf110>, ngram=u'afognak native corporation', score=0.0009894639772216809)]
+        # Get twice as many top terms to display to account for filtering
+        # TODO: keep track of how often too few terms shown
         top_terms = self.corpus.get_keywords(document_id=doc_id,
                                              tf_weight=tf_weight,
                                              idf_weight=idf_weight,
-                                             limit=limit)
+                                             limit=(2 * limit))
         debug.trace_fmtd(7, "top_terms={tt}", tt=top_terms)
-        top_term_info = [(k.ngram, k.score) for k in top_terms if k.ngram.strip()]
+        # Skip empty tokens due to spacing and to punctuation removal (e.g, " ")
+        temp_top_term_info = [(k.ngram, k.score) for k in top_terms if k.ngram.strip()]
+        # Put spaces around ngrams to aid in subsumption tests
+        spaced_ngrams = [(" " + ngram + " ") for (ngram, _score) in temp_top_term_info]
+        debug.trace_fmtd(7, "spaced_ngrams={sn}", sn=spaced_ngrams)
+        top_term_info = []
+        for (i, (ngram, score)) in enumerate(temp_top_term_info):
+            
+            if (not ngram.strip()):
+                debug.trace_fmt(5, "Omitting invalid ngram '{ng}'", ng=ngram)
+                continue
+            if ((not ALLOW_NUMERIC_NGRAMS) and all([tpo.is_numeric(token) for token in ngram.split()])):
+                debug.trace_fmt(5, "Omitting numeric ngram '{ng}'", ng=ngram)
+                continue
+            
+            # Subsumption (e.g., "new york" in "new york city")
+            # TODO: Add similar overlap check (e.g., "new york city" and "york city subway"); record ngram offsets to facilitate contiguity tests
+            include = True
+            for (j, other_spaced_ngram) in enumerate(spaced_ngrams):
+                if ((i > j) and ((spaced_ngrams[i] in other_spaced_ngram)
+                                 or (other_spaced_ngram in spaced_ngrams[i]))):
+                    debug.trace_fmt(5, "Omitting lower-weigted ngram '{ng2}' in subsumption with '{ng1}'", ng1=other_spaced_ngram, ng2=spaced_ngrams[i])
+                    include = False
+                    break
+            if not include:
+                continue
+
+            # OK
+            top_term_info.append((ngram, score))
+            if (len(top_term_info) == limit):
+                break
+        # Sanity check on number of terms displayed
+        num_terms = len(top_term_info)
+        if (num_terms < limit):
+            debug.trace_fmt(3, "Warning: only {n} terms shown (of {m} max)",
+                            n=num_terms, m=limit)
         debug.trace_fmtd(6, "top_term_info={tti}", tti=top_term_info)
         return top_term_info
 

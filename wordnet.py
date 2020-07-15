@@ -1,8 +1,9 @@
 # wordnet.py: module for WordNet access using NLTK WordNet package
 #
-# Copyright (c) 2012-2018 Thomas P. O'Hara
+# Copyright (c) 2012-2020 Thomas P. O'Hara
 #
 
+# TODO: used cleaned up version created for JSL usage
 from common import *
 debug_print("algo/wordnet.py: " + debug_timestamp(), level=3)
 
@@ -11,6 +12,8 @@ import nltk
 debug_print("after importing NTTK: " + debug_timestamp(), level=3)
 from nltk.corpus import wordnet as wn
 debug_print("after importing wordnet support: " + debug_timestamp(), level=3)
+
+import system
 
 #------------------------------------------------------------------------
 
@@ -210,5 +213,5 @@ if __name__ == '__main__':
         debug_print("Synset for lawyer.n.01: " + str(get_synset("lawyer.n.01")))
         debug_print("Synonyms of lawyer: " + str(get_synonyms("n:lawyer")))
         debug_print("Immediate hypernym terms of lawyer: " + str(get_hypernym_terms("n:lawyer")))
-        debug_print("All hypernym terms of lawyer: " + str(get_hypernym_terms("n:lawyer", max_dist=sys.maxint)))
+        debug_print("All hypernym terms of lawyer: " + str(get_hypernym_terms("n:lawyer", max_dist=system.MAX_INT)))
     debug_print("end: " + debug_timestamp(), level=3)

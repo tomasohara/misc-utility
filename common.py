@@ -1,16 +1,20 @@
-# common.py: Python module with common utilities mostly for debugging
+# common.py: (OLD) Python module with common utilities mostly for debugging
 #
 # sample usage:
 #    from common import *
 #    debug_print("start: " + debug_timestamp())
 #
 #------------------------------------------------------------------------
+#
+# NOTE:
+# - This is *** NOW OBSOLETE ***; use system.py and debug.py instead.
+#
 # TODO:
 # - add support for using pprint module
 # - add debug_print_value(var, level)
 #
 #------------------------------------------------------------------------
-# Copyright (c) 2012-2018 Thomas P. O'Hara
+# Copyright (c) 2012-2020 Thomas P. O'Hara
 #
 
 from __future__ import print_function           # enables version 3 print()
@@ -139,7 +143,7 @@ def print_stderr(text):
 
 # getenv_text(var, [default=""]): returns textual value for environment variable VAR (or DEFAULT value)
 #
-def getenv_text (var, default=""):
+def getenv_text(var, default=""):
     text_value = os.getenv(var)
     if not text_value:
         debug_print("getenv_text: no value for %s" % var, 6)
@@ -152,7 +156,7 @@ def getenv_text (var, default=""):
 # (or DEFAULT value)
 # Note: "0" or "False" is interpreted as False, and any other value as True.
 #
-def getenv_boolean (var, default=False):
+def getenv_boolean(var, default=False):
     bool_value = default
     value_text = getenv_text(var)
     if (len(value_text) > 0):
@@ -165,7 +169,7 @@ def getenv_boolean (var, default=False):
 # getenv_number(var, [default=-1]): returns number based on environment VAR (or DEFAULT value).
 # getenv_int/getenv_real: typed variants
 #
-def getenv_number (var, default=-1):
+def getenv_number(var, default=-1):
     num_value = default
     value_text = getenv_text(var)
     if (len(value_text) > 0):
@@ -174,18 +178,18 @@ def getenv_number (var, default=-1):
 #
 # Variants for integers and real numbers.
 #
-def getenv_integer (var, default=-1):
+def getenv_integer(var, default=-1):
     return int(getenv_number(var, default))
 #
-def getenv_real (var, default=-1):
+def getenv_real(var, default=-1):
     return getenv_number(var, default)
 #
 # Alaises for the above.
 #
-def getenv_int (var, default=-1):
+def getenv_int(var, default=-1):
     return getenv_int(var, default)
 #
-def getenv_float (var, default=-1):
+def getenv_float(var, default=-1):
     return getenv_number(var, default)
 
 

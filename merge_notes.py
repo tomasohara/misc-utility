@@ -1,3 +1,4 @@
+
 #! /usr/bin/env python
 #
 # merge_notes.py: merge textual note files based on timestamps
@@ -38,27 +39,39 @@
 # - Includes indicator of original file and line number in output
 #      [vm-plata-notes.txt:44]
 #      Did this and that
+#-------------------------------------------------------------------------------
+# TODO:
+# - *** Resolve problems with encoding (e.g., UTF-8): see ~/config/_master-note-info.list.08Jul20, such as following:
+#      find: ‘/run/user/1000/gvfs’: Permission denied
+#            ^ \342\200\230
+# - Allow for missing day-of-week and day (e.g., "Mar 16" => "Tues 1 Mar 16 [was Mar 16]").
 #
-# Copyright (c) 2012-2018 Thomas P. O'Hara
+# Copyright (c) 2012-2020 Thomas P. O'Hara
 #
 
-"""Merge textual notes"""
+"""Merge textual notes by dated entries"""
 
 import argparse
 import datetime
 import fileinput
-import os
 import re
 import sys
 from collections import defaultdict
 
-import tpo_common as tpo
-import glue_helpers as gh
+import debug
+from regex import my_re
+
+#...............................................................................
 
 def resolve_date(textual_date, default_date=None):
     """Converts from textual DATE into datetime object (using optional DEFAULT value)"""
+    # Note: Example uses first 5 of 8 of the datetime arguments:
+    #     year, month, day, hour, minute
     # EX: resolve_date("1 Jan 00") => datetime.datetime(2000, 1, 1, 0, 0)
+    # EX: resolve_date("0 Jan 00", datetime.datetime(2000, 1, 1, 0, 0)) => datetime.datetime(2000, 1, 1, 0, 0)
     # Note: date component specifiers: %a: abbreviated weekday; %d day of month (2 digits); %b abbreviated month; %y year without century; %Y: year with century
+    if default_date:
+        debug.assertion(isinstance(default_date, datetime.datetime))
     date = default_date
     resolved = False
     for date_format in ["%a %d %b %y", "%d %b %y", "%a %d %b %Y", "%d %b %Y"]:
@@ -69,15 +82,16 @@ def resolve_date(textual_date, default_date=None):
         except ValueError:
             pass
     if not resolved:
-        tpo.debug_format("Unable to resolve date '{t}'", 2, t=textual_date)
-    tpo.debug_format("resolve_date({t}, {d}) => {r}", 5,
+        debug.trace_fmtd(2, "Warning: Unable to resolve date '{t}'", t=textual_date)
+    debug.assertion(isinstance(date, datetime.datetime))
+    debug.trace_fmtd(5, "resolve_date({t}, {d}) => {r}",
                      t=textual_date, d=default_date, r=date)
     return date
 
 
 def main():
     """Entry point for script"""
-    tpo.debug_print("main(): sys.argv=%s" % sys.argv, 4)
+    debug.trace(4, "main(): sys.argv=%s" % sys.argv)
 
     # Check command-line arguments
     parser = argparse.ArgumentParser(description="Merges ascii notes files")
@@ -86,7 +100,7 @@ def main():
     parser.add_argument("--show-file-info", default=False, action='store_true', help="Include filename and line number of original file in output")
     parser.add_argument("filename", nargs='+', default='-', help="Input filename")
     args = vars(parser.parse_args())
-    tpo.debug_print("args = %s" % args, 5)
+    debug.trace(5, "args = %s" % args)
     input_files = args['filename']
     ignore_dividers = args['ignore_dividers']
     output_dividers = args['output_dividers']
@@ -100,27 +114,42 @@ def main():
 
     # Initiliaze current date to dummy from way back when
     dummy_date = "1 Jan 1900"
+    dummy_hour = "00:00:00"
     resolved_dummy_date = resolve_date(dummy_date)
-    gh.assertion(resolved_dummy_date < resolve_date("1 Jan 00"))
+    debug.assertion(resolved_dummy_date < resolve_date("1 Jan 00"))
+    debug.assertion(dummy_hour in str(resolved_dummy_date))
     last_date = dummy_date
+    last_resolved_date = resolved_dummy_date
     needs_source_info = True
 
-    # Read in all the notes line by line
-    for line in fileinput.input(input_files):
+    # Read in all the notes line by line, saving text for notes entries keyed by date.
+    # TODO: fix UTF-8 handling in Python3
+    ## BAD: for line in fileinput.input(input_files):
+    hook_utf8_replace = None
+    if sys.version_info.major > 2:
+        hook_utf8_replace = fileinput.hook_encoded('UTF-8', errors='replace')
+    has_new_date = False
+    for line in fileinput.input(input_files, openhook=hook_utf8_replace):
         line_num += 1
-        line = line.strip("\n")
-        tpo.debug_print("L%d: %s" % (line_num, line), 6)
+        # Note: strips leading and trailing spaces from line to facitate regex
+        # pattern matching, with raw line saved as original_line.
+        ## OLD: line = line.strip("\n")
+        original_line = line.strip("\n")
+        line = line.strip()
+        debug.trace(6, "L%d: %s" % (line_num, line))
 
         # Reset default date if first line in file
         if fileinput.isfirstline():
-            tpo.debug_format("new file: {f}", 4, f=fileinput.filename())
+            debug.trace_fmtd(4, "new file: {f}", f=fileinput.filename())
             last_date = dummy_date
+            last_resolved_date = resolved_dummy_date
             needs_source_info = True
             line_num = 1
 
         # Optionally ignore section dividers (20 or more dashes)
         if (ignore_dividers and re.search("^--------------------+$", line)):
-            tpo.debug_format("Ignoring divider at line {n}: {l}", 5, l=line, n=line_num)
+            debug.trace_fmtd(5, "Ignoring divider at line {n}: {l}",
+                             l=original_line, n=line_num)
             continue
 
         # Look for a new date in format Day dd Mon yy (e.g., "Fri 13 Nov 13")
@@ -128,59 +157,76 @@ def main():
         # - Day and Mon are capitized 3-letter abbreviations (i.e.., Sun, ..., Sat and Jan, ..., Dec)
         # - Source file and line information will be added for each new date
         # TODO: allow for a variety of date formats; allow for optional time
-        date = last_date
-        if (re.search(r"^([a-z][a-z][a-z] )?\d+ [a-z][a-z][a-z] \d+$", line, re.IGNORECASE)):
-            date = line.strip()
+        new_date = last_date
+        new_resolved_date = last_resolved_date
+        # Ensure days of the week are abbreviated (with no more than 3 letters)
+        line = re.sub(r"^(Sun|Mon|Tue|Wed|Thu|Fri|Sat)\w+day", r"\1", line, re.IGNORECASE)
+        line = re.sub(r"^(Tue)s (\d)", r"\1 \2", line, re.IGNORECASE)
+        line = re.sub(r"^(Thu)rs? (\d)", r"\1 \2", line, re.IGNORECASE)
+        # TODO: Ensure months are abbreviated
+        ## line = re.sub(r" (\d+) (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\w* (\d+)", r" \1 \2 \3", line, re.IGNORECASE)
+        ## OLD: if (re.search(r"^([a-z][a-z][a-z] )?\d+ [a-z][a-z][a-z] \d+$", line, re.IGNORECASE)):
+        if (my_re.search(r"^([a-z][a-z][a-z] )?\d+ [a-z][a-z][a-z] \d+$", line, re.IGNORECASE)):
+            ## OLD: new_date = line.strip()
+            new_date = my_re.group(0)
             needs_source_info = True
+            has_new_date = True
 
-            # Resolve date format
-            if date not in resolved_date:
-                resolved_date[date] = resolve_date(date, last_date)
+            # Resolve date format, adding to hash if not already there
+            # TODO: if not resolvable, report file and line number
+            if new_date not in resolved_date:
+                new_resolved_date = resolve_date(new_date, last_resolved_date)
+                debug.assertion(dummy_hour in str(new_resolved_date))
+                resolved_date[new_date] = new_resolved_date
                 # TODO: only add source info if different date
                 # needs_source_info = True
 
             # Update current date
             # note: used for subsequent lines without date specifications
-            last_date = date
+            last_date = new_date
+            last_resolved_date = new_resolved_date
 
             # Trace date resolution
-            tpo.debug_format("New date at line {n}: raw={raw}; resolved={new}\n", 5, 
-                             n=line_num, raw=date, new=resolved_date[date])
-
+            debug.trace_fmtd(5, "New date at line {n}: raw={raw}; resolved={new}\n", 
+                             n=line_num, raw=new_date, new=new_resolved_date)
+        else:
+            debug.trace_fmt(6, "Ignoring non-date at line {n}", n=line_num)
+                            
         # Add optional source indicator to current date
         if show_file_info and needs_source_info:
-            notes_hash[date] += "[src={f}:{n}]\n".format(f=fileinput.filename(), 
-                                                         n=fileinput.filelineno())
+            notes_hash[new_date] += "[src={f}:{n}]\n".format(f=fileinput.filename(), 
+                                                             n=fileinput.filelineno())
             needs_source_info = False
                 
         # Add line to notes for current date
-        gh.assertion(date != dummy_date)
-        notes_hash[date] += line + "\n"
-        
+        # TODO: use resolved date as key so different specifications for same date output together without new date spec
+        debug.assertion((not has_new_date) or (new_date != dummy_date))
+        ## notes_hash[new_date] += line + "\n"
+        notes_hash[new_date] += original_line + "\n"
+        has_new_date = False
 
     # Sort the note entries by resolved date
-    #
-    # DEBUG
+    # Note:
+    # - The sorting is based on the datetime.datetime type. If an error
+    #   occurs, the problem might be due to the resolve_date function
+    #   incorrectly returning a string instead of the proper datetime type.
+    # - This is used for sake of debugging (e.g., tracing bad comparison input).
     def get_resolved_date(k):
         """Debugging accessor for resolved_date with tracing"""
-        ## OLD: r = resolved_date.get(k)
         r = resolved_date.get(k, resolved_dummy_date)
-        tpo.debug_format("get_resolved_date({k}) => {r}", 7, k=k, r=r)
+        debug.trace_fmtd(7, "get_resolved_date({k}) => {r}", k=k, r=r)
         return r
     #
-    tpo.debug_format("notes_hash keys: {{\n{k}\n}}", 7, 
+    debug.trace_fmtd(7, "notes_hash keys: {{\n{k}\n}}", 
                      k="\t\n".join([str(v) for v in notes_hash.keys()]))
     #
     for pos, date in enumerate(sorted(notes_hash.keys(), 
-                                      ## OLD: key=lambda k: resolved_date.get(k, dummy_date))):
-                                      ## BAD: key=lambda k: resolved_date.get(k))):
-                                      ## DEBUG:
                                       key=get_resolved_date)):
-        tpo.debug_format("outputting notes for date {d} [resolved: {r}]", 6, 
+        debug.trace_fmtd(6, "outputting notes for date {d} [resolved: {r}]", 
                          d=date, r=resolved_date.get(date))
         if output_dividers and (pos > 0):
             print("-" * 80)
-        tpo.debug_format("[src={f}:{n}]", 6, skip_newline=True,
+        debug.trace_fmtd(6, "[src={f}:{n}]", skip_newline=True,
                          f=fileinput.filename(), n=fileinput.filelineno())
         print("%s\n\n" % notes_hash[date])
 

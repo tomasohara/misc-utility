@@ -29,7 +29,7 @@
 # - Add support for JSON.stringify.
 # - Handle function arguments split across lines.
 #
-# Copyright (c) 2012-2018 Thomas P. O'Hara
+# Copyright (c) 2012-2020 Thomas P. O'Hara
 #
 
 """Adds function trace statements to Javascript code"""

@@ -11,13 +11,13 @@
 # - Use file date for default date affix.
 # - Handle UTF8.
 #
-# Copyright (c) 2012-2018 Thomas P. O'Hara
+# Copyright (c) 2012-2020 Thomas P. O'Hara
 #
 
 """Extract text from common document types"""
 
 # Standard packages
-import re
+## OLD: import re
 import sys
 import datetime
 
@@ -95,7 +95,7 @@ def main():
             sys.stderr.write("Error: unknown option '{o}'\n".format(o=option))
             show_usage_and_quit()
         i += 1
-    if (len(args) == 0):
+    if (not args):
         show_usage_and_quit()
 
     # Process each of the arguments

@@ -10,7 +10,7 @@
 # - Rework hash reading so merging can be done at same time to avoid memory
 #   overhead of second hash.
 #
-# Copyright (c) 2012-2018 Thomas P. O'Hara
+# Copyright (c) 2012-2020 Thomas P. O'Hara
 #
 
 """Merge tabular data files"""
@@ -75,7 +75,7 @@ def merge_hashes(hash1, hash2):
         else:
             debug.trace_fmtd(5, "Adding key {k}", k=key)
             new_hash[key] = hash2[key]
-    debug.trace_fmtd(4, "len(new_hash)={l}",l=len(new_hash))
+    debug.trace_fmtd(4, "len(new_hash)={l}", l=len(new_hash))
     return new_hash
 
 

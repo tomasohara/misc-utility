@@ -8,7 +8,7 @@
 # - Add functions to facilitate functional programming (e.g., to simply debugging traces).
 # - Use functions integrated into juju/common to minimize dual mainentance issues.
 #
-# Copyright (c) 2012-2018 Thomas P. O'Hara
+# Copyright (c) 2012-2020 Thomas P. O'Hara
 #
 
 """Helpers gluing scripts together"""
@@ -38,17 +38,29 @@ default_subtrace_level = min(tpo.USUAL, tpo.debugging_level())
 if ALLOW_SUBCOMMAND_TRACING:
     default_subtrace_level = tpo.debugging_level()
 
-TEMP_LOG_FILE = tpo.getenv_text(
-    # "Log file for stderr (e.g., for issue function)"
-    "TEMP_LOG_FILE", 
-    tempfile.NamedTemporaryFile().name)
-
 INDENT = "    "                          # default indentation
 
 #------------------------------------------------------------------------
 
+def get_temp_file(delete=None):
+    """Return name of unique temporary file, optionally with DELETE"""
+    if ((delete is None) and tpo.detailed_debugging()):
+        delete = False
+    temp_file_name = tempfile.NamedTemporaryFile(delete=delete).name
+    # HACK: get rid of double backslashes in Win32 filenames
+    # ex: r'c:\\temp\\fubar' => r'c:\temp\fubar' 
+    ## if os.pathsep == r'\\':
+    ##     double_pathspec = os.pathsep + os.pathsep
+    ##     temp_file_name = temp_file_name.replace(double_pathspec, os.pathsep)
+    debug_format("get_temp_file() => {r}", 5, r=temp_file_name)
+    return temp_file_name
+#
+TEMP_LOG_FILE = tpo.getenv_text(
+    # "Log file for stderr (e.g., for issue function)"
+    "TEMP_LOG_FILE", get_temp_file())
+
 def basename(filename, extension=None):
-    """Remove directory and from FILENAME along with optional EXTENSION, as with Unix basename command. Note: the period in the extension must be explicitly supplied (e.g., '.data' not 'data')"""
+    """Remove directory from FILENAME along with optional EXTENSION, as with Unix basename command. Note: the period in the extension must be explicitly supplied (e.g., '.data' not 'data')"""
     # EX: basename("fubar.py", ".py") => "fubar"
     # EX: basename("fubar.py", "py") => "fubar."
     # EX: basename("/tmp/solr-4888.log", ".log") => "solr-4888"
@@ -71,7 +83,14 @@ def remove_extension(filename, extension):
     base = filename[:pos] if (pos > -1) else filename
     debug_print("remove_extension(%s, %s) => %s" % (filename, extension, base), 5)
     return base
-    
+
+
+def file_exists(filename):
+    """Returns indication that FILENAME exists"""
+    ok = os.path.exists(filename)
+    debug_print("file_exists(%s) => %s" % (filename, ok), 7)
+    return ok
+
 
 def non_empty_file(filename):
     """Whether FILENAME exists and is non-empty"""
@@ -106,6 +125,13 @@ def form_path(*filenames):
     path = os.path.join(*filenames)
     debug_format("form_path{f} => {p}", 6, f=tuple(filenames), p=path)
     return path
+
+
+def is_directory(path):
+    """Determins wther PATH represents a directory"""
+    is_dir = os.path.isdir(path)
+    debug_format("is_dir{p} => {r}", 6, p=path, r=is_dir)
+    return is_dir
 
 
 def create_directory(path):
@@ -161,7 +187,7 @@ def disable_subcommand_tracing():
 
 
 def run(command, trace_level=4, subtrace_level=None, just_issue=False, **namespace):
-    """Invokes COMMAND via system shell, using TRACE_LEVEL for debugging output, returning result. The command can use format-style templates, resolved from caller's namespace. The optional SUBTRACE_LEVEL sets tracing for invoked commands [defalt is same as TRACE_LEVEL); this works around problem with stderr not being separated, which can be a problem when tracing unit tests. Notes: This function doesn't work under Win32. Tabs are not preserved so redirect stdut to file if needed"""
+    """Invokes COMMAND via system shell, using TRACE_LEVEL for debugging output, returning result. The command can use format-style templates, resolved from caller's namespace. The optional SUBTRACE_LEVEL sets tracing for invoked commands (default is same as TRACE_LEVEL); this works around problem with stderr not being separated, which can be a problem when tracing unit tests. Notes: This function doesn't work fully under Win32. Tabs are not preserved, so redirect stdout to a file if needed."""
     # TODO: make sure no template markers left in command text (e.g., "tar cvfz {tar_file}")
     # EX: "root" in run("ls /")
     # Note: Script tracing controlled DEBUG_LEVEL environment variable.
@@ -185,6 +211,10 @@ def run(command, trace_level=4, subtrace_level=None, just_issue=False, **namespa
     # TODO: check for errors (e.g., "sh: filter_file.py: not found"); make wait explicit
     wait = not command.endswith("&")
     assertion(wait or not just_issue)
+    # Note: Unix supports the '>|' pipe operator (i.e., output with overwrite); but,
+    # it is not supported under Windows. To avoid unexpected porting issues, clients
+    # should replace 'run("... >| f")' usages with 'delete_file(f); run(...)'.
+    assertion(">|" not in command_line)
     result = getoutput(command_line) if wait else str(os.system(command_line))
     # Restore debug level setting in environment
     if debug_level_env:
@@ -195,16 +225,22 @@ def run(command, trace_level=4, subtrace_level=None, just_issue=False, **namespa
 
 def issue(command, trace_level=4, subtrace_level=None, **namespace):
     """Wrapper around run() for when output is not being saved (i.e., just issues command). 
-Note: this captures stderr unless redirected and displays when debugging"""
+    Note:
+    - Nothing is returned.
+    - Traces stdout when debugging at quite-detailed level (6).
+    - Captures stderr unless redirected and traces at error level (1)."""
     # EX: issue("ls /") => ""
     # EX: issue("xeyes &")
-    debug_print("run(%s, [trace_level=%s], [subtrace_level=%s])"
+    debug_print("issue(%s, [trace_level=%s], [subtrace_level=%s])"
                 % (command, trace_level, subtrace_level), (trace_level + 1))
     # Add stderr redirect to temporary log file, unless redirection already present
     log_file = None
     if tpo.debugging() and (not "2>" in command) and (not "2|&1" in command):
+        ## TODO: use a different suffix each time to aid in debuggin
         log_file = TEMP_LOG_FILE
-        command += " 2>| " + log_file
+        ## BAD: command += " 2>| " + log_file
+        delete_file(log_file)
+        command += " 2> " + log_file
     # Run the command and trace output
     command_line = command
     if re.search("{.*}", command_line):
@@ -224,7 +260,8 @@ Note: this captures stderr unless redirected and displays when debugging"""
 def extract_matches(pattern, lines, fields=1):
     """Checks for PATTERN matches in LINES of text returning list of tuples with replacement groups"""
     # ex: extract_matches(r"^(\S+) \S+", ["John D.", "Jane D.", "Plato"]) => ["John", "Jane"]
-    assert type(lines) == list
+    ## assert type(lines) == list
+    assert isinstance(lines, list)
     if pattern.find("(") == -1:
         pattern = "(" + pattern + ")"
     matches = []
@@ -246,7 +283,7 @@ def extract_matches(pattern, lines, fields=1):
 def extract_match(pattern, lines, fields=1):
     """Extracts first match of PATTERN in LINES for FIELDS"""
     matches = extract_matches(pattern, lines, fields)
-    result = (matches[0] if (len(matches) > 0) else None)
+    result = (matches[0] if matches else None)
     debug_print("match: %s" % result, 5)
     return result
 
@@ -347,6 +384,14 @@ def delete_file(filename):
         debug_print("Exception during deletion of {filename}: " + str(sys.exc_info()), 5)
     return ok
 
+
+def delete_existing_file(filename):
+    """Deletes FILENAME if it exists and is not a directory or other special file"""
+    ok = False
+    if file_exists(filename):
+        ok = delete_file(filename)
+    tpo.debug_format("delete_existing_file({f}) => {r}", 5, f=filename, r=ok)
+    return ok
 
 def file_size(filename):
     """Returns size of FILENAME in bytes (or -1 if not found)"""

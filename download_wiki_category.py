@@ -2,7 +2,7 @@
 #
 # download-wiki-category.py: downloads all Wikipedia articles in category (and descendant cateories)
 #
-# Copyright (c) 2012-2018 Thomas P. O'Hara
+# Copyright (c) 2012-2020 Thomas P. O'Hara
 #
 
 #------------------------------------------------------------------------

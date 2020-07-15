@@ -64,7 +64,7 @@
 # - Warn that without NLTK or Enchant, the text processing just checks common cases.
 # - Reconcile with version in juju/text_analytics.
 #
-# Copyright (c) 2012-2018 Thomas P. O'Hara
+# Copyright (c) 2012-2020 Thomas P. O'Hara
 #
 
 #------------------------------------------------------------------------

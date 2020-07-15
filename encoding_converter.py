@@ -7,9 +7,9 @@
 # - https://stackoverflow.com/questions/492483/setting-the-correct-encoding-when-piping-stdout-in-python
 #
 # TODO:
-# - Remove extraneous BOM's (i.e., from lines past first).
+# - Remove extraneous byte order marks (BOM's), such as after start of file.
 #
-# Copyright (c) 2012-2018 Thomas P. O'Hara
+# Copyright (c) 2012-2020 Thomas P. O'Hara
 #
 
 """Unicode converter (e.g., UTF-16 to UTF-8)"""

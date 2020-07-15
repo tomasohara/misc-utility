@@ -4,11 +4,15 @@
 #    http://scikit-learn.org/stable/tutorial/text_analytics/working_with_text_data.html
 #
 # TODO:
+# - ** Have option to output raw features (e.g., for use with other ML frameworks).
 # - Maintain cache of categorization results.
 # - Review categorization code and add examples for clarification of parameters.
-#- - Fix SHOW_REPORT option for training.
+# - Fix SHOW_REPORT option for training.
+# - Add Logistic Regression for diagnostic purposes.
+# - Add Extreme Gradient Boost (XGBoost).
+# - Put web server in separate module;
 #
-# Copyright (c) 2017-2018 Scrappycito, LLC
+# Copyright (c) 2017-2020 Thomas P. O'Hara
 #
 
 """Text categorization support"""
@@ -26,9 +30,11 @@ import numpy
 from sklearn.feature_extraction.text import CountVectorizer, TfidfTransformer
 from sklearn.naive_bayes import MultinomialNB
 from sklearn.linear_model import SGDClassifier
+from sklearn.linear_model import LogisticRegression
 from sklearn.svm import SVC
 from sklearn.pipeline import Pipeline
 from sklearn import metrics
+## import xgboost as xgb
 
 # Local packages
 import debug
@@ -62,9 +68,26 @@ SGD_PENALTY = system.getenv_text("SGD_PENALTY", "l2")
 SGD_ALPHA = system.getenv_float("SGD_ALPHA", 0.0001)
 SGD_SEED = system.getenv_float("SGD_SEED", None)
 SGD_MAX_ITER = system.getenv_int("SGD_MAX_ITER", 5)
-SGD_TOLERANCE = system.getenv_float("SGD_TOLERANCE", None)
+## OLD" SGD_TOLERANCE = system.getenv_float("SGD_TOLERANCE", None)
 SGD_VERBOSE = system.getenv_bool("SGD_VERBOSE", False)
 
+# Options for Extreme Gradient Boost (XGBoos)
+USE_XGB = system.getenv_bool("USE_XGB", False)
+if USE_XGB:
+    import xgboost as xgb
+XGB_USE_GPUS = system.getenv_bool("XGB_USE_GPUS", False)
+
+# Options for Logistic Regression
+# TODO: add regularization
+USE_LR = system.getenv_bool("USE_LR", False)
+
+# TODO: Options for Naive Bayes (the default)
+all_use_settings = [USE_SVM, USE_SGD, USE_XGB, USE_LR]
+USE_NB = (not any(all_use_settings))
+debug.assertion(sum([int(use) for use in all_use_settings]) <= 1)
+
+#................................................................................
+# Utility functions
 
 def sklearn_report(actual, predicted, labels, stream=sys.stdout):
     """Print classification analysis report for ACTUAL vs. PREDICTED indices with original LABELS and using STREAM"""
@@ -82,7 +105,7 @@ def sklearn_report(actual, predicted, labels, stream=sys.stdout):
 
 def create_tabular_file(filename, data):
     """Create tabular FILENAME with SkLearn DATA for use with read_categorization_data"""
-    # Note: intended for comparing results here against tutorial
+    # Note: intended for comparing results here against tutorial (e.g., in ipython shell)
     with open(filename, "w") as f:
         for i in range(len(data.data)):
             text = system.to_utf8(re.sub("[\t\n]", " ", data.data[i]))
@@ -110,40 +133,54 @@ def read_categorization_data(filename):
     debug.trace_values(7, zip(labels, values), "table")
     return (labels, values)
 
+#...............................................................................
 
 class TextCategorizer(object):
     """Class for building text categorization"""
     # TODO: add cross-fold validation support; make TF/IDF weighting optional
-    cat_pipeline = Pipeline([('vect', CountVectorizer()),
-                             ('tfidf', TfidfTransformer()),
-                             ('clf', MultinomialNB())])
 
     def __init__(self):
-        """Class constructor"""
+        """Class constructor: initializes classifier and text categoriation pipeline"""
         debug.trace_fmtd(4, "tc.__init__(); self=={s}", s=self)
         self.keys = []
         self.classifier = None
+        classifier = None
+
+        # Derive classifier based on user options
         if USE_SVM:
-            self.cat_pipeline = Pipeline(
-                [('vect', CountVectorizer()),
-                 ('tfidf', TfidfTransformer()),
-                 ('clf', SVC(kernel=SVM_KERNEL,
+            classifier = SVC(kernel=SVM_KERNEL,
                              C=SVM_PENALTY,
                              max_iter=SVM_MAX_ITER,
-                             verbose=SVM_VERBOSE))])
-        if USE_SGD:
-            self.cat_pipeline = Pipeline(
-                [('vect', CountVectorizer()),
-                 ('tfidf', TfidfTransformer()),
-                 ('clf', SGDClassifier(loss=SGD_LOSS,
+                             verbose=SVM_VERBOSE)
+        elif USE_SGD:
+            classifier = SGDClassifier(loss=SGD_LOSS,
                                        penalty=SGD_PENALTY,
                                        alpha=SGD_ALPHA,
                                        random_state=SGD_SEED,
                                        ## TODO: max_iter=SGD_MAX_ITER,
                                        n_iter=SGD_MAX_ITER,
-                                       ## tol=SGD_TOLERANCE
-                                       verbose=SGD_VERBOSE))])
+                                       ## OLD: tol=SGD_TOLERANCE
+                                       verbose=SGD_VERBOSE)
+        elif USE_XGB:
+            # TODO: rework to just define classifier here and then pipeline at end.
+            # in order to eliminate redundant pipeline-specification code.
+            misc_xgb_params = {}
+            if not XGB_USE_GPUS:
+                misc_xgb_params['n_gpus'] = 0
+            debug.trace_fmt(6, 'misc_xgb_params={m}', m=misc_xgb_params)
+            classifier = xgb.XGBClassifier(**misc_xgb_params)
+        elif USE_LR:
+            classifier = LogisticRegression()
+        else:
+            debug.assertion(USE_NB)
+            classifier = MultinomialNB()
 
+        # Add classifier to text categorization pipeline]
+        self.cat_pipeline = Pipeline(
+            [('vect', CountVectorizer()),
+             ('tfidf', TfidfTransformer()),
+             ('clf', classifier)])
+            
         return
 
     def train(self, filename):
@@ -183,7 +220,10 @@ class TextCategorizer(object):
             if VERBOSE:
                 stream.write("\n")
                 stream.write("Actual\tPredict\n")
-                for i in range(len(actual_indices)):
+                ## OLD: for i in range(len(actual_indices)):
+                ## TODO: complete conversion to using actual_index (here and below)
+                for (i, actual_index) in enumerate(actual_indices):
+                    debug.assertion(actual_index == actual_indices[i])
                     stream.write("{act}\t{pred}\n".
                                  format(act=self.keys[actual_indices[i]],
                                         pred=self.keys[predicted_indices[i]]))
@@ -195,7 +235,9 @@ class TextCategorizer(object):
         if OUTPUT_BAD:
             bad_instances = "Actual\tBad\tText\n"
             # TODO: for (i, actual_index) in enumerate(actual_indices)
-            for i in range(len(actual_indices)):
+            ## OLD: for i in range(len(actual_indices)):
+            for (i, actual_index) in enumerate(actual_indices):
+                debug.assertion(actual_index == actual_indices[i])
                 if (actual_indices[i] != predicted_indices[i]):
                     text = values[i]
                     context = (text[:CONTEXT_LEN] + "...\n") if (len(text) > CONTEXT_LEN) else text
@@ -210,7 +252,7 @@ class TextCategorizer(object):
     def categorize(self, text):
         """Return category for TEXT"""
         # TODO: Add support for category distribution
-        debug.trace_fmtd(4, "tc.categorize({_})")
+        debug.trace(4, "tc.categorize(_)")
         debug.trace_fmtd(6, "\ttext={t}", t=text)
         index = self.classifier.predict([text])[0]
         label = self.keys[index]
@@ -240,31 +282,9 @@ class TextCategorizer(object):
 # TODO: move to ~/visual-diff (e.g., text_categorizer_server.py)
 #
 
-INDEX_HTML = """
-<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
-<html>
-    <head>
-        <title>Text categorizer</title>
-    </head>
-    <body>
-        Try <a href="categorize">categorize</a> and <a href="get_category_image">get_category_image</a>.<br>
-        <p>
-        note: You need to supply the <i>text</i> parameter. For example,
-        <ul>
-            <li>Category for <a href="categorize?text={donald_trump}">{donald_trump}</a>.</li>
-            <li>Image for <a href="get_category_image?text={my_dog}">{my_dog}</a></li>
-        </ul>
-        <p>
-        Other example(s):
-        <ul>
-            <li><a href="shutdown">Shutdown the server</a></li> 
-        </ul>
-    </body>
-</html>
-""".format(donald_trump="Donald Trump is President.",
-           my_dog="My dog has fleas.")
-# TODO: only show shutdown for debugging hosts
-
+# Constants
+TRUMP_TEXT = "Donald Trump is President."
+DOG_TEXT = "My dog has fleas."
 CATEGORY_IMAGE_HASH = {
     # TODO: just use <category>.png to eliminate the hash
     # NOTES:
@@ -273,6 +293,7 @@ CATEGORY_IMAGE_HASH = {
     # - pets conflated with animal
     "animal": "/static/animals.png",
     "art": "/static/art.png",
+    "biology": "/static/science.png",
     "business": "/static/business.jpg",
     "computers": "/static/computers.jpg",
     "drugs": "/static/health.jpg",
@@ -305,6 +326,79 @@ CATEGORY_IMAGE_HASH = {
     "weather": "/static/weather.png",
 }
 
+#--------------------------------------------------------------------------------
+# Utility function(s)
+
+def format_index_html(base_url=None):
+    """Formats a simple HTML page illustrating the categorize and get_category_image API calls,
+    Note: BASE_URL provides the server URL (e.g., http://www.scrappycito.com:9440)"""
+    if (base_url is None):
+        base_url = "http://127.0.0.1"
+    if (base_url.endswith("/")):
+        base_url = system.chomp(base_url, "/")
+
+    # Create index page template with optional examples for debugging
+    html_template = """
+    <!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+    <html>
+        <head>
+            <title>Text categorizer</title>
+        </head>
+        <body>
+            Try <a href="categorize">categorize</a> and <a href="get_category_image">get_category_image</a>.<br>
+            note: You need to supply the <i><b>text</b></i> parameter.<br>
+            <br>
+            For example,
+            <ul>
+                <li>Category for <a href="categorize?text={quoted_trump_text}">"{trump_text}"</a>:<br>
+                    {indent}<code>{base_url}/categorize?text={quoted_trump_text}</code>
+                </li>
+    
+                <li>Image for <a href="get_category_image?text={quoted_dog_text}">"{dog_text}"</a>:<br>
+                    {indent}<code>{base_url}/get_category_image?text={quoted_dog_text}</code>
+                </li>
+            </ul>
+    """
+    #
+    if debug.detailed_debugging():
+        html_template += """
+            <p>
+            Other examples:
+            <ul>
+                <li><a href="shutdown">Shutdown</a> the server:<br>
+                    {indent}<code>{base_url}/shutdown</code>
+                </li>
+
+                <li>Alias for <a href="index">this index page</a>:<br>
+                    {indent}<code>{base_url}/index</code>
+                </li> 
+            </ul>
+        """
+    #
+    html_template += """
+	    <!-- Form for entering text for categorization -->
+            <hr>
+	    <form action="http://localhost:9440/categorize" method="get">
+	        <label for="textarea1">Categorize</label>
+	        <textarea id="textarea1" multiline="True" rows="10" cols="132" name="text"></textarea>
+	        <br>
+	        <input type="submit">
+	    </form>
+	    
+        </body>
+    </html>
+    """
+
+    # Resolve template into final HTML
+    index_html = html_template.format(base_url=base_url, indent="&nbsp;&nbsp;&nbsp;&nbsp;",
+                                      trump_text=TRUMP_TEXT,
+                                      quoted_trump_text=system.quote_url_text(TRUMP_TEXT),
+                                      dog_text=DOG_TEXT,
+                                      quoted_dog_text=system.quote_url_text(DOG_TEXT))
+    return index_html
+
+#................................................................................
+# Main class
 
 class web_controller(object):
     """Controller for CherryPy web server with embedded text categorizer"""
@@ -332,7 +426,11 @@ class web_controller(object):
         """Website root page (e.g., web site overview and link to search)"""
         debug.trace_fmtd(6, "wc.index(s:{s}, kw:{kw})", s=self, kw=kwargs)
         ## OLD: return "not much here excepting categorize and get_category_image"
-        return (INDEX_HTML)
+        base_url = cherrypy.url('/')
+        debug.trace_fmt(4, "base_url={b}", b=base_url)
+        index_html = format_index_html(base_url)
+        debug.trace_fmt(6, "html={{\n{h}\n}}", h=index_html)
+        return index_html
 
     @cherrypy.expose
     def categorize(self, text, **kwargs):
@@ -364,13 +462,18 @@ class web_controller(object):
 
     @cherrypy.expose
     def stop(self, **kwargs):
-        """Stops the web search server and saves cached data to disk"""
+        """Stops the web search server and saves cached data to disk.
+        Note: The command is ignored if not debugging."""
         debug.trace_fmtd(5, "wc.stop(s:{s}, kw:{kw})", s=self, kw=kwargs)
-        if os.environ.get("HOST_NICKNAME") in ["hostwinds", "ec2-micro"]:
+        # TODO: get whitelisted server hosts from environment
+        if ((not debug.detailed_debugging()) and (os.environ.get("HOST_NICKNAME") in ["hostwinds", "hw2", "ec2-micro"])):
             return "Call security!"
-        cherrypy.engine.stop()
+        # TODO: Straighten out shutdown quirk (seems like two invocations required).
+        # NOTE: Putting exit before stop seems to do the trick. However, it might be
+        # the case that the servr shutdown 
         cherrypy.engine.exit()
-        # TODO: use HTML so shutdown shown in title
+        cherrypy.engine.stop()
+        # TODO: Use HTML so shutdown shown in title.
         return "Adios"
 
     # alias for stop
@@ -413,6 +516,7 @@ def start_web_controller(model_filename):
 
 
 #------------------------------------------------------------------------
+# Entry point
 
 def main(args):
     """Supporting code for command-line processing"""

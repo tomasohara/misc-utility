@@ -1,5 +1,6 @@
 #! /usr/bin/env python
-# tpo_common.py: Python module with common utilities mostly for debugging (by Tom O'Hara)
+# tpo_common.py: Python module with common utilities mostly for debugging,
+# mostly superceded by debug.py, system.py, and misc_util.py """
 #
 # sample usage:
 #    import tpo_common as tpo
@@ -8,9 +9,14 @@
 #------------------------------------------------------------------------
 #
 # Note:
+# - *** Obsolete: use system.py, debug.py, etc. instead.
+# - Use Emacs's query-replace-regexp (e.g., via M-#) to interative convert debug_format to debug.trace_fmt: 
+#     from: debug_format(\(\"[^\"]*\"\), \([0-9]*\),
+#       to: debug.trace_fmt(\2, \1,")
+# - The TPO prefix was used originally to avoid conflicts. Some of the older scripts
+#   rely upon this, but it will be eventually phased out.
 # - This redefines some built-in functions (e.g., format and exit), so
 #   you shouldn't import using 'import *'.
-# - Part of the code was developed prior to Juju work, so not properly stylized.
 # - Debugging output and error messages are converted to UTF8 before output
 #   via s=unicode(s, "utf8"), which is same as s=codecs.encode(s, "utf8").
 # - Debugging code is "conditionally compiled" to avoid overhead of passing
@@ -22,11 +28,11 @@
 # - Add support for using pprint module
 # - Put a version of assertion() here (i.e., from glue_helpers.py).
 # - Extend getenv support to indicate user-vs-devel options.
-# - Use functions integrated into juju/common to minimize dual mainentance issue.
 # - Remove obsolete functions (e.g., get_current_function_name).
 # - Use debug_trace in place of debug_print in code run often.
 #
-# Copyright (c) 2012-2018 Thomas P. O'Hara
+#------------------------------------------------------------------------
+# Copyright (C) 2012-2020 Thomas P. O'Hara
 #
 
 """Common utility functions"""
@@ -45,6 +51,7 @@ import re
 import inspect
 import logging
 import pickle
+from six import string_types
 import time
 import types
 
@@ -126,7 +133,7 @@ if __debug__:
             if debug_level >= 96:
                 stderr.write("debug_trace_without_newline(text=%s, level=%s, args=%s)" % 
                              (_normalize_unicode(text), level, [_normalize_unicode(v) for v in args]))
-            if len(args) > 0:
+            if args:
                 try:
                     text = (text % args)
                 except (AttributeError, IndexError, NameError, TypeError, ValueError):
@@ -217,7 +224,7 @@ if __debug__:
         # Note: Intended for use in except clause to produce full stacktrace when debugging.
         # TODO: Have version that just prints complete stacktrace (i.e., without breaking).
         if debug_level >= level:
-            raise
+            raise                        # pylint: disable=misplaced-bare-raise
         return
 
 
@@ -227,9 +234,9 @@ if __debug__:
         assert(isinstance(level, int))
         if debug_level >= level:
             trace_output = ("%s: " % label) if label else ""
-            for i in range(len(array)):
+            for i, item in enumerate(array):
                 trace_output += "  " if (i > 0) else ""
-                trace_output += "%d: %s" % (i, array[i])
+                trace_output += "%d: %s" % (i, item)
             debug_print(trace_output)
         return
 
@@ -238,7 +245,6 @@ if __debug__:
         """Traces out OBJ instance to stderr if at debugging LEVEL or higher, 
         optionally preceded by LABEL, using INDENT, and limiting value lengths to MAX_VALUE_LEN"""
         # based on http://stackoverflow.com/questions/192109/is-there-a-function-in-python-to-print-all-the-current-properties-and-values-of
-        # TODO: exclude methods; put label arg after level (for consistency with version in juju.lib.debug_helpers)?
         debug_format("trace_object(_, lvl={lvl}, lab={lab}, prv={prv}, mth={mth}, ind={ind})", 7,
                      lvl=level, lab=label, prv=show_private, mth=show_methods_etc, ind=indent)
         global debug_level
@@ -268,8 +274,7 @@ if __debug__:
                             types.BuiltinFunctionType, types.BuiltinMethodType,
                             types.ModuleType)
                         if ((not isinstance(attr_value, method_types))
-                                or (not "method-wrapper" in 
-                                    str(type(attr_value)))
+                                or ("method-wrapper" not in str(type(attr_value)))
                                 or show_methods_etc):
                             if len(to_string(attr_value)) > max_value_len:
                                 attr_value = to_string(attr_value)[:max_value_len] + "..."
@@ -443,7 +448,9 @@ def to_string(obj):
     # EX: to_string(None) => "None"
     # TODO: have specialization that returns "" for None
     result = obj
-    if not isinstance(result, types.StringTypes):
+    ## NOTE: Gotta hate python
+    ## if not isinstance(result, types.StringTypes):
+    if not isinstance(result, string_types):
         result = "%s" % (obj,)
     return result
 
@@ -515,7 +522,7 @@ def restore_stderr():
     stderr = sys.stderr
 
 
-def exit(message, **namespace):
+def exit(message, **namespace):    # pylint: disable=redefined-builtin
     """Display error MESSAGE to stderr and then exit, using optional
     NAMESPACE for format"""
     if namespace:
@@ -534,6 +541,7 @@ def setenv(var, value):
 def chomp(text, line_separator=os.linesep):
     """Removes trailing occurrence of LINE_SEPARATOR from TEXT"""
     # EX: chomp("abc\n") => "abc"
+    # EX: chomp("http://localhost/", "/") => "http://localhost"
     result = text
     if result.endswith(line_separator):
         new_len = len(result) - len(line_separator)
@@ -642,11 +650,11 @@ def getenv_boolean(var, default=False, description=None):
     bool_value = default
     value_text = getenv_text(var, default, description=description)
     # TODO: gh.assertion(type(default) == bool or default is None)
-    if type(default) != bool and default is not None:
+    if ((default is not None) and (not isinstance(default, bool))):
         print_stderr("Warning: unexpected default type to getenv_boolean: " +
                      "{t} vs. bool or None; var={v}", t=type(default), v=var)
     # TODO: assert(isinstance(value_text, str))
-    if value_text and (len(value_text) > 0):
+    if value_text:
         bool_value = True
         if (value_text.lower() == "false") or (value_text == "0"):
             bool_value = False
@@ -660,7 +668,7 @@ def getenv_number(var, default=-1, description=None, integral=False):
     value_text = getenv_text(var, default, description=description)
     # TODO: assert(isinstance(value_text, str))
     # TODO: make sure misc_utils version reconciled (and rework tpo_common to use latter!)
-    if value_text and (len(value_text) > 0):
+    if value_text:
         # Note: safe_int/_float not used so that exception into always displayed
         try:
             num_value = int(value_text) if integral else float(value_text)
@@ -703,7 +711,7 @@ def get_current_function_name():
     # TODO: remove as no longer used???
     name = "???"
     try:
-        name = sys._getframe(1).f_code.co_name
+        name = sys._getframe(1).f_code.co_name     # pylint: disable=protected-access
     except (AttributeError, ValueError):
         print_stderr("Exception in get_current_function_name: " + str(sys.exc_info()))
     debug_print("get_current_function_name() => %s" % name, 5)
@@ -740,7 +748,7 @@ def simple_format(text, namespace):
         value = None
         try:
             # note: no global namespace specified (but should be part of local one as with format below)
-            value = eval(var, None, namespace)
+            value = eval(var, None, namespace)    # pylint: disable=eval-used
         except (IndexError, NameError, SyntaxError, TypeError, ValueError):
             debug_print("Exception during eval: " + str(sys.exc_info()), 6)
         if value is None:
@@ -759,7 +767,7 @@ def simple_format(text, namespace):
 
 warned_about_namespace = {}
 #
-def format(text, indirect_caller=False, ignore_exception=False, **namespace):
+def format(text, indirect_caller=False, ignore_exception=False, **namespace):    # pylint: disable=redefined-builtin
     """Formats TEXT using local namespace, optionally using additional level or
     indirection. If no keywords NAMESPACE specified, they are taken from local
     environment (which is convenient but un-pythonic and a bit inefficient).
@@ -783,7 +791,7 @@ def format(text, indirect_caller=False, ignore_exception=False, **namespace):
     frame = None
     result = ""
     try:
-        if len(namespace) == 0:
+        if not namespace:
             frame = inspect.currentframe().f_back
             if indirect_caller:
                 frame = frame.f_back
@@ -807,14 +815,18 @@ def format(text, indirect_caller=False, ignore_exception=False, **namespace):
         else:
             # Make sure values to output are UTF-8 unless text is unicode
             # Note: only converts strngs, lists, and hashes (e.g., omitting user objects and numbers)
-            debug_trace("type(text)=%s", type(text), level=91)
-            debug_trace("namespace=%s", namespace, level=94)
-            transform_fn = _normalize_unicode if not type(text) == unicode else _ensure_unicode
-            for k in namespace:
-                if isinstance(namespace[k], types.StringTypes):
-                    namespace[k] = transform_fn(namespace[k])
-                elif type(namespace[k]) in [list, dict]:
-                    namespace[k] = transform_fn(to_string(namespace[k]))
+            if sys.version_info[0] < 3:
+                debug_trace("type(text)=%s", type(text), level=91)
+                debug_trace("namespace=%s", namespace, level=94)
+                ## OLD: transform_fn = _normalize_unicode if not type(text) == unicode else _ensure_unicode
+                transform_fn = _normalize_unicode if (not isinstance(text, unicode)) else _ensure_unicode
+                for k in namespace:
+                    ## BAD: if isinstance(namespace[k], types.StringTypes):
+                    if isinstance(namespace[k], string_types):
+                        namespace[k] = transform_fn(namespace[k])
+                    ## OLD: elif type(namespace[k]) in [list, dict]:
+                    elif isinstance(namespace[k], (list, dict)):
+                        namespace[k] = transform_fn(to_string(namespace[k]))
             # Do the actual conversion
             result = text.format(**namespace)
     except (AttributeError, KeyError, UnicodeDecodeError, ValueError):
@@ -866,7 +878,8 @@ def dump_stored_object(object_filename, dump_filename, level=1):
     # Note: convenience function for interactive usage
     redirect_stderr(dump_filename)
     obj = load_object(object_filename)
-    if isinstance(obj, dict) or isinstance(obj, list):
+    ## OLD: if isinstance(obj, dict) or isinstance(obj, list):
+    if isinstance(obj, (dict, list)):
         trace_value(obj, level)
     else:
         trace_object(obj, level)
@@ -1034,7 +1047,7 @@ def append_new(in_list, item):
     """Returns copy of LIST with ITEM included unless already in it"""
     result = in_list[:]
     if item not in result:
-        result += item
+        result += [item]
     debug_print("append_new(%s, %s) => %s" % (in_list, item, result), 5)
     return result
 
@@ -1073,8 +1086,8 @@ def round_num(num, precision=None, zero_fill=True):
             rounded_num = re.sub(r"(\.[0-9]*)0+$", "\\1", rounded_num)
             assert(rounded_num != old_rounded_num)
         rounded_num = rounded_num.rstrip(".")
-    debug_format("round_num(n, [p]) => r", 8,
-                 n=num, p=precision, r=rounded_num)
+    debug_format("round_num({n}, [prec={p}, zero_fill={z}]]) => {r}", 8,
+                 n=num, p=precision, z=zero_fill, r=rounded_num)
     return rounded_num
 
 
@@ -1084,14 +1097,15 @@ def round_nums(numbers, precision=None, zero_fill=True):
     return [round_num(v, precision, zero_fill) for v in numbers]
 
 
-def round(number_or_list, precision=None):
+def round(number_or_list, precision=None):    # pylint: disable=redefined-builtin
     """Llke round_num(s) but returning float(s)"""
     # EX: round(15000) => 15000.0
     # EX: round([0.333333, 0.666666, 0.99999]) => [0.333, 0.666, 1.0]
     # Note: This is different from built-in round in that list is allowed and
     # for use of rounding-precision environment option (via round_num).
     rounded_result = 0
-    if isinstance(number_or_list, float) or isinstance(number_or_list, int):
+    ## OLD: if isinstance(number_or_list, float) or isinstance(number_or_list, int):
+    if isinstance(number_or_list, (float, int)):
         rounded_result = float(round_num(number_or_list, precision))
     else:
         rounded_result = [float(s) for s in round_nums(number_or_list, precision)]
@@ -1227,7 +1241,7 @@ if __debug__:
         def _display_ending_info():
             """Display ending time information"""
             tpo_common_end = time.time()
-            debug_format("ending common.py at {time}; elapsed={diff}s", 
+            debug_format("ending tpo_common.py at {time}; elapsed={diff}s", 
                          level=USUAL, time=debug_timestamp(), 
                          diff=round_num(tpo_common_end - tpo_common_start))
         #

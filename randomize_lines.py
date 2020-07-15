@@ -1,12 +1,12 @@
 #! /usr/bin/env python
 #
 # randomize-lines.py: randomize lines in a file without reading entirely into memory.
-# This creates a temporary file with a random numberr in the first column and
+# This creates a temporary file with a random number in the first column and
 # the original line contents in the second. Then the temporary file is sorted
 # and the random number column removed.
 #
 # Note:
-# - inspired by examples under Stack Overflow (see below)  
+# - Inspired by examples under Stack Overflow (see below).
 #
 #------------------------------------------------------------------------
 # via http://stackoverflow.com/questions/4618298/randomly-mix-lines-of-3-million-line-file
@@ -50,10 +50,14 @@ RANDOM_SEED = tpo.getenv_integer("RANDOM_SEED", None,
 def main():
     """Entry point for script"""
     tpo.debug_print("main(): sys.argv=%s" % sys.argv, 4)
+    ## TODO: assert is_directory("/usr/bin"), "This requires Unix"
+    if ("--ignore-case" not in gh.run("sort --help")):
+        tpo.print_stderr("Error: This requires a Unix-type version of sort (e.g., GNU).")
+        sys.exit()
 
     # Check command-line arguments
     parser = argparse.ArgumentParser(description="Randomize lines in a file (without reading entirely into memory).")
-    parser.add_argument("--include-header", default=False, action='store_true', help="random seed")
+    parser.add_argument("--include-header", default=False, action='store_true', help="Keep first line as headers")
     parser.add_argument("--seed", type=int, default=None, help="random seed")
     parser.add_argument("filename", nargs='?', default='-', help="Input filename")
     args = vars(parser.parse_args())
@@ -76,7 +80,7 @@ def main():
         random.seed(RANDOM_SEED)
 
     # Add column with random number to temporary file
-    temp_base = tpo.getenv_text("TEMP_FILE", tempfile.NamedTemporaryFile().name)
+    temp_base = tpo.getenv_text("TEMP_FILE", gh.get_temp_file())
     temp_input_file = temp_base + ".input"
     temp_output_file = temp_base + ".output"
     temp_input_handle = open(temp_input_file, "w")
@@ -96,7 +100,21 @@ def main():
     temp_input_handle.close()
 
     # Sort by random-number column (1) and then remove temporary column
-    gh.run("sort -n < {in_file} | cut -f2- >| {out_file}",
+    # NOTES:
+    # - This needs to ensure that the unix version of sort is used.
+    # - The Win32 version of run() doesn't support pipes. 
+    ## BAD: gh.run("/usr/bin/sort -n < {in_file} | cut -f2- >| {out_file}",
+    ##             in_file=temp_input_file, out_file=temp_output_file)
+    ## OLD: temp_mid_file = gh.get_temp_file()
+    ## BAD2: gh.run("PATH='/usr/bin:$PATH' sort -n < '{in_file}' > '{temp_mid}'",
+    ## OLD: gh.run('/usr/bin/sort -n < "{in_file}" > "{temp_mid}"',
+    ## OLD:        in_file=temp_input_file, temp_mid=temp_mid_file)
+    ## OLD: gh.run("cut -f2- '{temp_mid}' > '{out_file}'",
+    ## OLD:        temp_mid=temp_mid_file, out_file=temp_output_file)
+    ## TODO: Use another way to bypass Windows sort command (e.g., in case sort
+    ## is located in a different directory than /usr/bin).
+    gh.delete_existing_file(temp_output_file)
+    gh.run("sort -n < {in_file} | cut -f2- > {out_file}",
            in_file=temp_input_file, out_file=temp_output_file)
 
     # Display result

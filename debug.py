@@ -9,12 +9,14 @@
 # - So that other local packages can use tracing freely, this only
 #   imports standard packages. In particular, system.py is not imported,
 #   so functionality must be reproduced here (e.g., _to_utf8).
+# - Gotta hate Pythonista's who prevailed in Python3 breaking lots of Python2
+#   code just for the sake of simplicity, a la manera moronista (i.e., only one moronic way to do things)!
 #
 # TODO:
 # - Rename as debug_utils so clear that non-standard package.
-# - Add my_assert that isses error message rather than raising exception.
+# - Add exception handling throughout (e.g., more in trace_object).
 #
-# Copyright (c) 2012-2018 Thomas P. O'Hara
+# Copyright (c) 2017-2020 Thomas P. O'Hara
 #
 
 """Debugging functions (e.g., tracing)"""
@@ -22,7 +24,6 @@
 ## OLD: if sys.version_info.major == 2:
 ## OLD:    from __future__ import print_function
 from __future__ import print_function
-import sys_version_info_hack
 
 # Standard packages
 import atexit
@@ -31,14 +32,31 @@ import inspect
 import os
 from pprint import pprint
 import re
+import six
 import sys
+import time
 
+# Local packages
+# note: The following redefines sys.version_info to be python3 compatible;
+# this is used in _to_utf8, which should be reworked via six-based wrappers.
+import sys_version_info_hack              # pylint: disable=unused-import
+
+
+# Constants for pre-defined tracing levels
 ALWAYS = 0
 ERROR = 1
 WARNING = 2
 USUAL = 3
 DETAILED = 4
 VERBOSE = 5
+QUITE_DETAILED = 6
+QUITE_VERBOSE = 7
+MOST_DETAILED = 8
+MOST_VERBOSE = 9
+
+# Other constants
+UTF8 = "UTF-8"
+STRING_TYPES = six.string_types
 
 if __debug__:    
 
@@ -82,36 +100,76 @@ if __debug__:
         """Convert TEXT to UTF-8 (e.g., for I/O)"""
         # Note: version like one from system.py to avoid circular dependency
         result = text
-        if ((sys.version_info.major < 3) and (isinstance(text, unicode))):
+        if ((sys.version_info.major < 3) and (isinstance(text, unicode))):  # pylint: disable=undefined-variable
             result = result.encode("UTF-8", 'ignore')
         return result
 
 
+    def _to_unicode(text, encoding=None):
+        """Ensure TEXT in ENCODING is Unicode, such as from the default UTF8"""
+        # TODO: rework from_utf8 in terms of this
+        if not encoding:
+            encoding = UTF8
+        result = text
+        if ((sys.version_info.major < 3) and (not isinstance(result, unicode))): # pylint: disable=undefined-variable
+            result = result.decode(encoding, 'ignore')
+        return result
+
+
+    def _to_string(text):
+        """Ensure TEXT is a string type"""
+        result = text
+        if (not isinstance(result, STRING_TYPES)):
+            # Values are coerced using % operator for proper Unicode handling,
+            # except for tuples which are converted recursively. This avoids a
+            # type error due to arguments not being converted (e.g., second 
+            # tuple constituent, etc.), as in ("%s" % (9, 1)).
+            if isinstance(result, tuple):
+                result = "(" + ", ".join([_to_string(v) for v in result]) + ")"
+            else:
+                result = "%s" % result
+        return result
+
+    
     def trace(level, text):
         """Print TEXT if at trace LEVEL or higher, including newline"""
+        # Note: trace should not be used with text that gets formatted to avoid
+        # subtle errors
         if (trace_level >= level):
-            # Prefix trace with timestamp
+            # Prefix trace with timestamp w/o date
             if output_timestamps:
                 # Get time-proper from timestamp (TODO: find standard way to do this)
-                timestamp = re.sub(r"^\d+-\d+-\d+\s*", "", debug_timestamp())
+                timestamp_time = re.sub(r"^\d+-\d+-\d+\s*", "", timestamp())
 
-                print("[" + timestamp + "]", end=": ", file=sys.stderr)
+                print("[" + timestamp_time + "]", end=": ", file=sys.stderr)
             # Print trace, converted to UTF8 if necessary (Python2 only)
+            # TODO: add version of assertion that doesn't use trace or trace_fmtd
+            ## TODO: assertion(not(re.search(r"{\S*}", text)))
             print(_to_utf8(text), file=sys.stderr)
         return
 
 
     def trace_fmtd(level, text, **kwargs):
         """Print TEXT with formatting using optional format KWARGS if at trace LEVEL or higher, including newline"""
+        # Note: To avoid interpolated text as being interpreted as variable
+        # references, this function does the formatting.
+        # TODO: weed out calls that use (level, text.format(...)) rather than (level, text, ...)
         if (trace_level >= level):
             try:
-                trace(level, text.format(**kwargs))
+                # TODO: add version of assertion that doesn't use trace or trace_fmtd
+                ## TODO: assertion(re.search(r"{\S*}", text))
+                ## OLD: assertion("{" in text)
+                ## OLD: trace(level, text.format(**kwargs))
+                kwargs_unicode = {k:_to_unicode(_to_string(v)) for (k, v) in list(kwargs.items())}
+                trace(level, _to_unicode(text).format(**kwargs_unicode))
             except(KeyError, ValueError, UnicodeEncodeError):
+                raise_exception(max(VERBOSE, level + 1))
                 sys.stderr.write("Warning: Problem in trace_fmtd: {exc}\n".
                                  format(exc=sys.exc_info()))
                 # Show arguments so trace contents recoverable
                 sys.stderr.write("   text=%r\n" % _to_utf8(clip_value(text)))
-                kwargs_spec = ", ".join(("%s:%r" % (k, clip_value(v))) for (k, v) in kwargs.iteritems())
+                ## OLD: kwargs_spec = ", ".join(("%s:%r" % (k, clip_value(v))) for (k, v) in kwargs.iteritems())
+                kwargs_spec = ", ".join(("%s:%r" % (k, clip_value(v))) for (k, v) in list(kwargs.items()))
                 sys.stderr.write("   kwargs=%s\n" % _to_utf8(kwargs_spec))
         return
 
@@ -120,7 +178,7 @@ if __debug__:
         """Trace out OBJ's members to stderr if at trace LEVEL or higher"""
         # Note: This is intended for arbitrary objects, use trace_values for lists or hashes.
         # See https://stackoverflow.com/questions/383944/what-is-a-python-equivalent-of-phps-var-dump.
-        # TODO: support recursive trace
+        # TODO: support recursive trace; specialize show_all into show_private and show_methods
         ## OLD: print("{stmt} < {current}: {r}".format(stmt=level, current=trace_level,
         ##                                       r=(trace_level < level)))
         if (pretty_print is None):
@@ -128,11 +186,19 @@ if __debug__:
         if (trace_level < level):
             return
         if label is None:
-            label = str(type(obj)) + " " + hex(hash(obj))
+            ## BAD: label = str(type(obj)) + " " + hex(hash(obj))
+            label = str(type(obj)) + " " + hex(id(obj))
         if indentation is None:
             indentation = "   "
         trace(0, label + ": {")
-        for (member, value) in inspect.getmembers(obj):
+        ## OLD: for (member, value) in inspect.getmembers(obj):
+        member_info = []
+        try:
+            member_info = inspect.getmembers(obj)
+        except:
+            trace_fmtd(7, "Warning: Problem getting member list in trace_object: {exc}",
+                       exc=sys.exc_info())
+        for (member, value) in member_info:
             # TODO: value = clip_text(value)
             trace_fmtd(8, "{i}{m}={v}; type={t}", i=indentation, m=member, v=value, t=type(value))
             if (trace_level >= 9):
@@ -152,14 +218,15 @@ if __debug__:
                            m=member, exc=sys.exc_info())
                 value_spec = "__n/a__"
             if (show_all or (not (member.startswith("__") or 
-                                  re.search('^<.*(method|module|function).*>$', value_spec)))):
+                                  re.search(r"^<.*(method|module|function).*>$", value_spec)))):
                 ## trace(0, indentation + member + ": " + value_spec)
                 sys.stderr.write(indentation + member + ": ")
                 if pretty_print:
                     # TODO: remove quotes from numbers and booleans
                     pprint(value_spec, stream=sys.stderr, indent=len(indentation))
                 else:
-                    sys.stderr.write(value_spec)
+                    ## sys.stderr.write(value_spec)
+                    sys.stderr.write(_to_utf8(value_spec))
                     sys.stderr.write("\n")
         trace(0, indentation + "}")
         return
@@ -173,10 +240,14 @@ if __debug__:
         if indentation is None:
             indentation = "   "
         if label is None:
-            label = str(type(collection)) + " " + hex(hash(collection))
+            ## BAD: label = str(type(collection)) + " " + hex(hash(collection))
+            label = str(type(collection)) + " " + hex(id(collection))
             indentation = "   "
         trace(0, label + ": {")
-        keys_iter = collection.iterkeys() if isinstance(collection, dict) else xrange(len(collection))
+        ## OLD: keys_iter = collection.iterkeys() if isinstance(collection, dict) else xrange(len(collection))
+        ## OLD2: keys_iter = collection.iterkeys() if isinstance(collection, dict) else range(len(collection))
+        keys_iter = list(collection.keys()) if isinstance(collection, dict) else range(len(collection))
+        ## NOTE: Gotta hate python3 for dropping xrange [la manera moronista!]
         for k in keys_iter:
             try:
                 trace_fmtd(0, "{ind}{k}: {v}", ind=indentation, k=k,
@@ -188,9 +259,35 @@ if __debug__:
         return
 
 
-    def debug_timestamp():
-        """Return timestamp for use in debugging traces"""
-        return (str(datetime.now()))
+    def trace_current_context(level=QUITE_DETAILED, label=None, 
+                              show_methods_etc=False):
+        """Traces out current context (local and global variables), with output
+        prefixed by "LABEL context" (e.g., "current context: {\nglobals: ...}").
+        Notes: By default the debugging level must be quite-detailed (6).
+        If the debugging level is higher, the entire stack frame is traced.
+        Also, methods are omitted by default."""
+        frame = None
+        if label is None:
+            label = "current"
+        try:
+            frame = inspect.currentframe().f_back
+        except (AttributeError, KeyError, ValueError):
+            trace_fmt(5, "Exception during trace_current_context: {exc}",
+                      exc=sys.exc_info())
+        trace_fmt(level, "{label} context: {{", label=label)
+        prefix = "    "
+        if (get_level() - level) > 1:
+            trace_object((level + 2), frame, "frame", indentation=prefix,
+                         show_all=show_methods_etc)
+        else:
+            trace_fmt(level, "frame = {f}", f=frame)
+            if frame:
+                trace_object(level, frame.f_globals, "globals", indentation=prefix,
+                             show_all=show_methods_etc)
+                trace_object(level, frame.f_locals, "locals", indentation=prefix,
+                             show_all=show_methods_etc)
+        trace(level, "}")
+        return
 
 
     def raise_exception(level=1):
@@ -203,6 +300,7 @@ if __debug__:
 
     def assertion(expression):
         """Issue warning if EXPRESSION doesn't hold"""
+        ## TODO: have streamlined version using sys.write that can be used for trace and trace_fmtd sanity checks about {}'s
         # EX: assertion((2 + 2) != 5)
         if (not expression):
             try:
@@ -226,23 +324,11 @@ if __debug__:
         return
 
 
-    ## TODO: output_timestamps = getenv_boolean("OUTPUT_DEBUG_TIMESTAMPS", output_timestamps)
-    output_timestamps = (str(os.environ.get("OUTPUT_DEBUG_TIMESTAMPS", False)).upper()
-                         in ["1", "TRUE"])
-
-    # Show startup time and tracing info
-    MODULE_FILE = __file__
-    trace_fmtd(3, "[{f}] loaded at {t}", f=MODULE_FILE, t=debug_timestamp())
-    trace_fmtd(4, "trace_level={l}; output_timestamps={ots}", l=trace_level, ots=output_timestamps)
-
-    # Register to show shuttdown time
-    atexit.register(lambda: trace_fmtd(3, "[{f}] unloaded at {t}", f=MODULE_FILE, t=debug_timestamp()))
-    
 else:
 
     def non_debug_stub(*_args, **_kwargs):
         """Non-debug stub"""
-        pass
+        return
 
 
     def get_level():
@@ -257,31 +343,43 @@ else:
 
     set_output_timestamps = non_debug_stub
 
-
     trace = non_debug_stub
-
 
     trace_fmtd = non_debug_stub
 
-
     trace_object = non_debug_stub
-
-
-    debug_timestamp = non_debug_stub
-
-
+    
+    trace_current_context = non_debug_stub
+   
     raise_exception = non_debug_stub
-
-
+    
     assertion = non_debug_stub
+
+    
+# note: adding alias for trace_fmtd to account for common typo
+# TODO: alias trace to trace_fmt as well (add something like trace_out if format not desired)
+trace_fmt = trace_fmtd
+
+def debug_print(text, level):
+    """Wrapper around trace() for backward compatibility
+    Note: debug_print will soon be deprecated."""
+    return trace(level, text)
+
+
+def timestamp():
+    """Return timestamp for use in logging, etc."""
+    return (str(datetime.now()))
+    
 
 def debugging(level=ERROR):
     """Whether debugging at specified trace level, which defaults to {l}""".format(l=ERROR)
     return (get_level() >= level)
-    
+
+
 def detailed_debugging():
     """Whether debugging with trace level at or above {l}""".format(l=DETAILED)
     return (get_level() >= DETAILED)
+
 
 def verbose_debugging():
     """Whether debugging with trace level at or above {l}""".format(l=VERBOSE)
@@ -290,15 +388,15 @@ def verbose_debugging():
 #-------------------------------------------------------------------------------
 # Utility functions useful for debugging (e.g., for trace output)
 
-# TODO: CLIPPED_MAX = system.getenv_int("CLIPPED_MAX", 132)
+# TODO: CLIPPED_MAX = system-ish.getenv_int("CLIPPED_MAX", 132)
 CLIPPED_MAX = 132
 #
-def clip_value(value):
-    """Return clipped version of VALUE (e.g., first 132 chars)"""
+def clip_value(value, max_len=CLIPPED_MAX):
+    """Return clipped version of VALUE (e.g., first MAX_LEN chars)"""
     # TODO: omit conversion to text if already text [DUH!]
     clipped = "%s" % value
-    if (len(clipped) > CLIPPED_MAX):
-        clipped = clipped[:CLIPPED_MAX] + "..."
+    if (len(clipped) > max_len):
+        clipped = clipped[:max_len] + "..."
     return clipped
 
 def read_line(filename, line_number):
@@ -317,9 +415,43 @@ def main(_args):
     """Supporting code for command-line processing"""
     trace(1, "Warning: Not intended for direct invocation. A simple tracing example follows.")
     trace_object(1, datetime.now(), label="now")
-    # TODO: debug.assertion(2 + 2 == 5)
     return
 
+# Do debug-only processing (n.b., for when PYTHONOPTIMIZE not set)
+# Note: wrapped in function to keep things clean
+
+if __debug__:
+
+    def debug_init():
+        """Debug-only initialization"""
+        time_start = time.time()
+        trace(4, "in debug_init()")
+        
+        # Determine whether tracing include time and date
+        global output_timestamps
+        output_timestamps = (str(os.environ.get("OUTPUT_DEBUG_TIMESTAMPS", False)).upper()
+                             in ["1", "TRUE"])
+    
+        # Show startup time and tracing info
+        module_file = __file__
+        trace_fmtd(3, "[{f}] loaded at {t}", f=module_file, t=timestamp())
+        trace_fmtd(4, "trace_level={l}; output_timestamps={ots}", l=trace_level, ots=output_timestamps)
+    
+        # Register to show shuttdown time and elapsed seconds
+        def display_ending_time_etc():
+            """Display ending time information"""
+            elapsed = round(time.time() - time_start, 3)
+            trace_fmtd(4, "[{f}] unloaded at {t}; elapsed={e}s",
+                       f=module_file, t=timestamp(), e=elapsed)
+        atexit.register(display_ending_time_etc)
+        
+        return
+
+    
+    # Do the initialization
+    debug_init()
+
+#-------------------------------------------------------------------------------
 
 if __name__ == '__main__':
     main(sys.argv)

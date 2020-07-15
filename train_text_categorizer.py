@@ -6,7 +6,7 @@
 # TODO:
 # - Rename to something like apply_text_categorizer.py.
 #
-# Copyright (c) 2012-2018 Thomas P. O'Hara
+# Copyright (c) 2012-2020 Thomas P. O'Hara
 #
 
 """Trains text categorization"""
@@ -65,7 +65,8 @@ def main(args=None):
     if testing_filename and (testing_filename != "-"):
         accuracy = text_cat.test(testing_filename, report=SHOW_REPORT)
         print("Accuracy over {f}: {acc}".format(acc=accuracy, f=testing_filename))
-    # Show usage if nothing done (e.g., due to too many -'s for filenames)
+
+    # Show usage if nothing actually done (e.g., due to too many -'s for filenames)
     if (not (new_model or accuracy)):
         usage()
               

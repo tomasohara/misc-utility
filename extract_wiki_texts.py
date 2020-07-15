@@ -3,7 +3,7 @@
 # extract_wiki_token.py: Extracts tokens from each of the articles in a
 # Wikipedia dump
 #
-# Copyright (c) 2012-2018 Thomas P. O'Hara
+# Copyright (c) 2012-2020 Thomas P. O'Hara
 #
 
 """Extraction wikipedia article tokens"""
