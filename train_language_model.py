@@ -6,9 +6,9 @@
 #
 # This automates the following steps:
 # 1. Apply sentence and word tokenization
-#        $ ../tpo_text_processing.py --lowercase --just-tokenize juju-outbox-2013-06-part-00000.desc.txt >| juju-outbox-2013-06-part-00000.tokenized.txt
+#        $ ../tpo_text_processing.py --lowercase --just-tokenize outbox-2013-06-part-00000.desc.txt >| outbox-2013-06-part-00000.tokenized.txt
 # 2. Create the language model using 3-grams
-#        $ ~/programs/kenlm/bin/lmplz --memory '25%' --order 3 < juju-outbox-2013-06-part-00000.desc.tokenized.txt >| juju-outbox-2013-06-part-00000.desc.3gram.arpa
+#        $ ~/programs/kenlm/bin/lmplz --memory '25%' --order 3 < outbox-2013-06-part-00000.desc.tokenized.txt >| outbox-2013-06-part-00000.desc.3gram.arpa
 #
 # Notes:
 # - The memory mapped format should be created under a native directory.
@@ -42,8 +42,8 @@ Usage: {program} source-file.txt
 
 Example:
 
-{program} coreidx-qiqci-keyword-query-count.query.list
-echo $'administrative assistant\\nprogramming assistant\\n' | LM=coreidx-qiqci-keyword-query-count.query.list.3gram.arpa SKIP_SENT_TAGS=1 kenlm_example.py -
+{program} keyword-query-count.query.list
+echo $'administrative assistant\\nprogramming assistant\\n' | LM=keyword-query-count.query.list.3gram.arpa SKIP_SENT_TAGS=1 kenlm_example.py -
 
 Notes:
 - The output is put in source-file.Ngram.arpa and source-file.Ngram.mmap.
