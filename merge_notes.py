@@ -1,4 +1,3 @@
-
 #! /usr/bin/env python
 #
 # merge_notes.py: merge textual note files based on timestamps
@@ -44,11 +43,14 @@
 # - *** Resolve problems with encoding (e.g., UTF-8): see ~/config/_master-note-info.list.08Jul20, such as following:
 #      find: ‘/run/user/1000/gvfs’: Permission denied
 #            ^ \342\200\230
+# - ** Add option for maximum size (e.g., 1000 lines) to avoid inadvertantly incorporating large data files (e.g., sample-patient-notes.txt).
 # - Allow for missing day-of-week and day (e.g., "Mar 16" => "Tues 1 Mar 16 [was Mar 16]").
+#
 #
 
 """Merge textual notes by dated entries"""
 
+# Standard packages
 import argparse
 import datetime
 import fileinput
@@ -56,8 +58,10 @@ import re
 import sys
 from collections import defaultdict
 
+# Local packages
 import debug
-from regex import my_re
+from my_regex import my_re
+import system
 
 #...............................................................................
 
@@ -99,18 +103,17 @@ def main():
     parser.add_argument("filename", nargs='+', default='-', help="Input filename")
     args = vars(parser.parse_args())
     debug.trace(5, "args = %s" % args)
-    input_files = args['filename']
+    ## OLD: input_files = args['filename']
+    full_input_files = args['filename']
     ignore_dividers = args['ignore_dividers']
     output_dividers = args['output_dividers']
     show_file_info = args['show_file_info']
 
-    # Process input line by line
-    # TODO: implement the script
+    # Initial defaults
+    # note: initializes current date to dummy from way back when
     line_num = 0
     notes_hash = defaultdict(str)
     resolved_date = {}
-
-    # Initiliaze current date to dummy from way back when
     dummy_date = "1 Jan 1900"
     dummy_hour = "00:00:00"
     resolved_dummy_date = resolve_date(dummy_date)
@@ -120,16 +123,22 @@ def main():
     last_resolved_date = resolved_dummy_date
     needs_source_info = True
 
+    # Filter inaccessible files from input file list
+    input_files = [f for f in full_input_files if system.file_exists(f)]
+    inaccessible_files = system.difference(full_input_files, input_files)
+    if inaccessible_files:
+        system.print_stderr("Warning: ignoring {n} inaccessible files {fl}",
+                            n=len(inaccessible_files), fl=inaccessible_files)
+    
     # Read in all the notes line by line, saving text for notes entries keyed by date.
-    # TODO: fix UTF-8 handling in Python3
-    ## BAD: for line in fileinput.input(input_files):
+    # TODO: add in the text in groups of lines to allow for de-duplication across files (e.g., same entry from current note file and earlier version in restore directory)
     hook_utf8_replace = None
     if sys.version_info.major > 2:
         hook_utf8_replace = fileinput.hook_encoded('UTF-8', errors='replace')
     has_new_date = False
     for line in fileinput.input(input_files, openhook=hook_utf8_replace):
         line_num += 1
-        # Note: strips leading and trailing spaces from line to facitate regex
+        # Note: strips leading and trailing spaces from line to facilitate regex
         # pattern matching, with raw line saved as original_line.
         ## OLD: line = line.strip("\n")
         original_line = line.strip("\n")
@@ -152,7 +161,7 @@ def main():
 
         # Look for a new date in format Day dd Mon yy (e.g., "Fri 13 Nov 13")
         # Notes:
-        # - Day and Mon are capitized 3-letter abbreviations (i.e.., Sun, ..., Sat and Jan, ..., Dec)
+        # - Day and Mon are capitalized 3-letter abbreviations (i.e.., Sun, ..., Sat and Jan, ..., Dec)
         # - Source file and line information will be added for each new date
         # TODO: allow for a variety of date formats; allow for optional time
         new_date = last_date

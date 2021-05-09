@@ -20,11 +20,13 @@
 #
 #-------------------------------------------------------------------------------
 # TODO:
+# - ** Add edit distance check for 'break' mispellings (e.g., breal) to avoid recording excess time!!
 # - Allow _ placeholders in week and total summary if month not complete.
 # - Clean up debug_format calls.
 # - Make hours line optional (e.g., assume blank line separates days).
 # - Make weekly hours optional (e.g., assume repeated day separates week).
 # - Have option to output template for current month!
+#
 #
 
 """Validates the hour tabulations in a time tracking report"""
@@ -38,7 +40,7 @@ import debug
 ## OLD: import tpo_common as tpo
 import sys_version_info_hack                  # pylint: disable=unused-import
 import system
-from regex import my_re
+from my_regex import my_re
 
 # Note: python 3.6+ format strings are used (n.b., assumes sys_version_info_hack above)
 # TODO: See if why to have pylist issue warning about version; that way, there's less
@@ -64,9 +66,11 @@ def main():
     parser.add_argument("--ignore-comments", default=False, action='store_true', help="ignore comments in the time tracking report")
     parser.add_argument("--verbose", default=True, action='store_true', help="verbose output mode (e.g., summary of weekly hours)")
     parser.add_argument("--quiet", dest='verbose', action='store_false', help="non-verbose mode")
-    parser.add_argument("--weekly", dest='weekly', default=False, action='store_true', help="non-verbose mode")
+    parser.add_argument("--weekly", dest='weekly', default=False, action='store_true', help="show weekly summary of hours")
     parser.add_argument("--heuristics", default=False, dest='heuristics', action='store_true', help="use heuristics such as ignoring time slots labelled as 'break' (n.b., can be confusing without --quiet or debugging enabled)")
+    parser.add_argument("--skip-hours-check", default=False, action='store_true', help="TODO: does xyz, ...")
     ## TODO: parser.add_argument("--xyz", default=False, dest='xyz', action='store_true', help="TODO: does xyz, ...")
+    ## -or- parser.add_argument("--not-xyz", dest='xyz', action='store_false', help="TODO: does not xyz, ...")
     parser.add_argument("filename", help="input filename")
     args = vars(parser.parse_args())
     debug.trace(5, f"args = {args}")
@@ -77,6 +81,7 @@ def main():
     use_heuristics = args['heuristics']
     verbose = args['verbose']
     show_weekly = args['weekly']
+    skip_hours_check = args['skip_hours_check']
     ## TODO: verbose = args['verbose'] or use_heuristics
 
     # Print header for weekly summary and initialize associated record keeping
@@ -137,8 +142,12 @@ def main():
         if (my_re.search(r"^hours:\s*(\S*)", line)):
             debug.trace(5, "hours check")
             specified_hours = system.safe_float(my_re.group(1), 0.0)
-            if (specified_hours != hours):
+            ## OLD: if (specified_hours != hours):
+            if ((specified_hours != hours) and (not skip_hours_check)):
                 system.print_stderr("Error: Discrepancy in hours at line {n}: change {spec} => {calc}?".format(n=line_num, spec=specified_hours, calc=hours))
+            else:
+                # HACK: pretend user specified tabulated hours (TODO: use 'hours' below for clarify)
+                specified_hours = hours
             weekly_hours += specified_hours
             weekday_hours[day_of_week] = specified_hours
             hours = 0
@@ -189,8 +198,12 @@ def main():
         elif (my_re.search(r"^hours:\s*(\S*)", line)):
             debug.trace(5, "hours check")
             specified_hours = system.safe_float(my_re.group(1), 0.0)
-            if (specified_hours != hours):
+            ## OLD: if (specified_hours != hours):
+            if ((specified_hours != hours) and (not skip_hours_check)):
                 system.print_stderr("Error: Discrepancy in hours at line {n}: change {spec} => {calc}?".format(n=line_num, spec=specified_hours, calc=hours))
+            else:
+                # HACK: pretend user specified tabulated hours (TODO: use 'hours' below for clarify)
+                specified_hours = hours
             weekly_hours += specified_hours
             weekday_hours[day_of_week] = specified_hours
             hours = 0
@@ -199,7 +212,8 @@ def main():
         elif (my_re.search(r"^weekly hours:\s*(\S*)", line)):
             debug.trace(5, "weekly hours check")
             specified_hours = system.safe_float(my_re.group(1), 0.0)
-            if (specified_hours != weekly_hours):
+            ## OLD: if (specified_hours != weekly_hours):
+            if ((specified_hours != weekly_hours) and (not skip_hours_check)):
                 system.print_stderr("Error: Discrepancy in weekly hours at line {n}: change {spec} => {calc}?".format(n=line_num, spec=specified_hours, calc=weekly_hours))
             num_weeks += 1
             if verbose:
@@ -221,7 +235,8 @@ def main():
             if (weekly_hours != 0):
                 system.print_stderr("Error: Missing weekly hours prior to total at line {n}".format(n=line_num))
             specified_hours = system.safe_float(my_re.group(1), 0.0)
-            if (specified_hours != total_hours):
+            ## OLD: if (specified_hours != total_hours):
+            if ((specified_hours != total_hours) and (not skip_hours_check)):
                 system.print_stderr("Error: Discrepancy in total hours at line {n}: change {spec} => {calc}?".format(n=line_num, spec=specified_hours, calc=total_hours))
 
         # Ignore miscellaneous line: starts with 5 or more dashes (e.g., "------------------...-----")

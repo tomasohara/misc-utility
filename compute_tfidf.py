@@ -4,30 +4,27 @@
 # for a collection of documents. See https://en.wikipedia.org/wiki/Tf-idf.
 #
 # TODO:
-# - *** Clarify confusing options regarding ngram size ***
-# - ** Add sanity checks (e.g., soft assertions). **
 # - Show examples.
 # - Have option for producing document/term matrix.
-# - Have option to show TF and IDF values.
-# - Add option for IDF weighting: max, prob, and basic.
-# - Add option for TF weighting: log, norm_50 (double normalized), binary, and basic.
 # - Add option to omit TF,IDF and IDF fields (e.g., in case just interested in frequency counts).
 # - Add option to put term at end, so numeric fields are aligned.
 # - -and/or- Have ** max-output-term-length option and right pad w/ spaces.
 # - See if IDF calculation should for 0 if just one document occurrence.
+# - Reconcile with ngram_tfidf.py (e.g., overlap here with subsumption there).
 #
 # Note:
 # - This script is just for running tfidf over text files.
 # - See ngram_tfdif.py for a wrapper class around tfidf for use in applications
 #   like Visual Diff Search that generate the text dynamically.
 #
+#
 
-## TODO: update/fix/refine description (e.g., add mention of file1, ..., fileN or of file.csv)
-"""Extract text from common document types"""
+
+"""Compute Term Frequency/Inverse Document Frequency (TF-IDF) for a set of documents"""
 
 # Standard packages
-## TODO: import re
 import csv
+import os
 import re
 import sys
 
@@ -41,22 +38,25 @@ from tfidf.preprocess import Preprocessor as tfidf_preprocessor
 import debug
 import system
 
-
 # Determine environment-based options
 DEFAULT_NUM_TOP_TERMS = system.getenv_int("NUM_TOP_TERMS", 10)
-# TODO: * add env-var comments to better distinguish confusing ngram options!
-DEFAULT_NGRAM_SIZE = system.getenv_int("DEFAULT_NGRAM_SIZE", 1)
-NGRAM_SIZE_PROPER = system.getenv_int("NGRAM_SIZE", DEFAULT_NGRAM_SIZE)
-debug.assertion(NGRAM_SIZE_PROPER >= DEFAULT_NGRAM_SIZE)
-MIN_NGRAM_SIZE = system.getenv_int("MIN_NGRAM_SIZE", DEFAULT_NGRAM_SIZE)
+MAX_NGRAM_SIZE = system.getenv_int("MAX_NGRAM_SIZE", 1)
+MIN_NGRAM_SIZE = system.getenv_int("MIN_NGRAM_SIZE", MAX_NGRAM_SIZE)
 IDF_WEIGHTING = system.getenv_text("IDF_WEIGHTING", "basic")
 TF_WEIGHTING = system.getenv_text("TF_WEIGHTING", "basic")
 DELIMITER = system.getenv_text("DELIMITER", ",")
+CORPUS_DUMP = system.getenv_text("CORPUS_DUMP", "")
+PRUNE_SUBSUMED_TERMS = system.getenv_bool("PRUNE_SUBSUMED_TERMS", False)
+PRUNE_OVERLAPPING_TERMS = system.getenv_bool("PRUNE_OVERLAPPING_TERMS", False)
+SKIP_STEMMING = system.getenv_bool("SKIP_STEMMING", False,
+                                   "Skip word stemming (via Snowball)")
+INCLUDE_STEMMING = not SKIP_STEMMING
+LANGUAGE = system.getenv_text("LANGUAGE", "english",
+                              "Language for stemming and stop words (n.b., use '' for n/a)")
 
 # Option names and defaults
-## OLD: NGRAM_SIZE = "--ngram-size"
-NGRAM_SIZE_OPTION = "--ngram-size"
-NUM_TOP_TERMS = "--num-top-terms"
+NGRAM_SIZE_OPT = "--ngram-size"
+NUM_TOP_TERMS_OPT = "--num-top-terms"
 ## OLD: NGRAM_SMOOTHING = "--use-ngram-smoothing"
 SHOW_SUBSCORES = "--show-subscores"
 SHOW_FREQUENCY = "--show-frequency"
@@ -66,12 +66,11 @@ CSV = "--csv"
 
 def show_usage_and_quit():
     """Show command-line usage for script and then exit"""
-    # TODO: make ???
-    # TODO: see why --csv showing up as '{--csv}' (i.e., extraneous brace and quotes)
+    # TODO: make 
     usage = """
-Usage: {prog} [options] file1 ... fileN
+Usage: {prog} [options] file1 [... fileN]
 
-Options: [--help] [{ngrams_args}=N] [{top_terms}=N] [{subscores}] [{frequencies}] [{csv}]
+Options: [--help] [{ngram_size_opt}=N] [{top_terms_opt}=N] [{subscores}] [{frequencies}] [{csv}]
 
 Notes:
 - Derives TF-IDF for set of documents, using single word tokens (unigrams),
@@ -80,22 +79,70 @@ Notes:
 - However, with {csv}, the document ID is taken from the first column, and the document text from the second columns (i.e., each row is a distinct document).
 - Use following environment options:
       DEFAULT_NUM_TOP_TERMS ({default_topn})
-      NGRAM_SIZE ({default_ngram})
       MIN_NGRAM_SIZE ({min_ngram_size})
+      MAX_NGRAM_SIZE ({max_ngram_size})
       TF_WEIGHTING ({tf_weighting}): {{log, norm_50, binary, basic, freq}}
       IDF_WEIGHTING ({idf_weighting}): {{smooth, max, prob, basic, freq}}
-    """.format(prog=sys.argv[0], ngrams_args=NGRAM_SIZE_OPTION, top_terms=NUM_TOP_TERMS, subscores=SHOW_SUBSCORES, frequencies=SHOW_FREQUENCY, default_topn=DEFAULT_NUM_TOP_TERMS, default_ngram=DEFAULT_NGRAM_SIZE, min_ngram_size=MIN_NGRAM_SIZE, tf_weighting=TF_WEIGHTING, idf_weighting=IDF_WEIGHTING, csv={CSV})
+""".format(prog=sys.argv[0], ngram_size_opt=NGRAM_SIZE_OPT, top_terms_opt=NUM_TOP_TERMS_OPT, subscores=SHOW_SUBSCORES, frequencies=SHOW_FREQUENCY, default_topn=DEFAULT_NUM_TOP_TERMS, min_ngram_size=MIN_NGRAM_SIZE, max_ngram_size=MAX_NGRAM_SIZE, tf_weighting=TF_WEIGHTING, idf_weighting=IDF_WEIGHTING, csv={CSV})
     print(usage)
     sys.exit()
+
+
+def get_suffix1_prefix2(subterms1, subterms2):
+    """returns any suffix of SUBTERMS1 list that is a prefix of SUBTERMS2 list"""
+    # EX: get_suffix1_prefix2(["my", "dog"], ["dog", "has"]) => ["dog"]
+    # EX: get_suffix1_prefix2(["a", "b", "c"], ["b", "d"]) => []
+    # TODO: support string arguments (e.g., by splitting on whitespace)
+    prefix_len = 0
+    for subterm1 in subterms1:
+        if ((subterm1 in subterms2) and (subterms2.index(subterm1) == prefix_len)):
+            prefix_len += 1
+        else:
+            prefix_len = 0
+    prefix = (subterms1[-prefix_len:] if prefix_len else[])
+    debug.trace_fmt(7, "get_suffix1_prefix2({st1}, {st2}) => {p}", st1=subterms1, st2=subterms2, p=prefix)
+    return prefix
+    
+
+def terms_overlap(term1, term2):
+    """Whether TERM1 and TERM1 overlap (and the overlapping text if so)"""
+    # EX: terms_overlap("ACME Rocket Research", "Rocket Research Labs") => "Rocket Research"
+    # TODO: put in text_utils
+    subterms1 = term1.strip().split()
+    subterms2 = term2.strip().split()
+    overlap = ""
+    if system.intersection(subterms1, subterms2):
+        # pylint: disable=arguments-out-of-order
+        overlap = " ".join((get_suffix1_prefix2(subterms1, subterms2) or get_suffix1_prefix2(subterms2, subterms1)))
+    debug.trace_fmt(6, "terms_overlap({t1}, {t2}) => {o}", t1=term1, t2=term2, o=overlap)
+    return overlap
+
+
+def is_subsumed(term, terms, include_overlap=PRUNE_OVERLAPPING_TERMS):
+    "Whether TERM is subsumed by another term in TERMS"""
+    # EX: is_subsumed("White House", ["The White House", "Congress", "Supreme Court"])
+    subsumed_by = [subsuming_term for subsuming_term in terms
+                   if (((term in subsuming_term) 
+                        or (include_overlap and terms_overlap(term, subsuming_term)))
+                       and (term != subsuming_term))]
+    subsumed = any(subsumed_by)
+    debug.trace_fmt(6, "is_subsumed({t}) => {r}; subsumed by: {sb}",
+                    t=term, r=subsumed, sb=subsumed_by)
+    return subsumed
+
+#...............................................................................
 
 def main():
     """Entry point for script"""
     args = sys.argv[1:]
-    debug.trace_fmtd(5, "main(): args={a}", a=args)
+    ## NOTE: debug now shows args
+    ## OLD: debug.trace_fmtd(5, "main(): args={a}", a=args)
+    debug.trace_fmtd(4, "main()")
+    debug.trace_fmtd(4, "os.environ={env}", env=os.environ)
 
     # Parse command-line arguments
     i = 0
-    ngram_size = DEFAULT_NGRAM_SIZE
+    max_ngram_size = MAX_NGRAM_SIZE
     num_top_terms = DEFAULT_NUM_TOP_TERMS
     ## OLD: use_ngram_smoothing = False
     show_subscores = False
@@ -106,10 +153,10 @@ def main():
         debug.trace_fmtd(5, "arg[{i}]: {opt}", i=i, opt=option)
         if (option == "--help"):
             show_usage_and_quit()
-        elif (option == NGRAM_SIZE):
+        elif (option == NGRAM_SIZE_OPT):
             i += 1
-            ngram_size = int(args[i])
-        elif (option == NUM_TOP_TERMS):
+            max_ngram_size = int(args[i])
+        elif (option == NUM_TOP_TERMS_OPT):
             i += 1
             num_top_terms = int(args[i])
         ## OLD: subsumed by IDF_WEIGHTING
@@ -143,25 +190,35 @@ def main():
         system.print_stderr("Warning: TF-IDF not relevant with only one document")
 
     # Initialize Tf-IDF module
-    # TODO: add warning that no-op stemmer is being used (i.e., lambda x: x)
-    my_pp = tfidf_preprocessor(language='english', gramsize=ngram_size, min_ngram_size=MIN_NGRAM_SIZE, all_ngrams=False, stemmer=lambda x: x)
-    corpus = tfidf_corpus(gramsize=ngram_size, min_ngram_size=MIN_NGRAM_SIZE, all_ngrams=False, preprocessor=my_pp)
+    # Note: disables stemming
+    ## OLD: my_pp = tfidf_preprocessor(language='english', gramsize=ngram_size, min_ngram_size=MIN_NGRAM_SIZE, all_ngrams=False, stemmer=lambda x: x)
+    ## TODO: make stemming and stopword removal optional (rather than useing LANGUAGE='' hack)
+    ## OLD: my_pp = tfidf_preprocessor(language=LANGUAGE, gramsize=ngram_size, min_ngram_size=MIN_NGRAM_SIZE, all_ngrams=False, stemmer=lambda x: x)
+    stemmer_fn = None if INCLUDE_STEMMING else (lambda x: x)
+    my_pp = tfidf_preprocessor(language=LANGUAGE, gramsize=max_ngram_size, min_ngram_size=MIN_NGRAM_SIZE, all_ngrams=False, stemmer=stemmer_fn)
+    corpus = tfidf_corpus(gramsize=max_ngram_size, min_ngram_size=MIN_NGRAM_SIZE, all_ngrams=False, preprocessor=my_pp)
 
     # Process each of the arguments
     doc_filenames = {}
     for i, filename in enumerate(args):
-        # If CVS file, treat each row as separate document, using ID from first column and data from second
+        # If CSS file, treat each row as separate document, using ID from first column and data from second
         if csv_file:
             ## TODO: with open(filename, encoding="utf-8") as fh:
-            ## TODO: trap for invalid imput (e.g., wrong delimiter)
             with open(filename) as fh:
                 csv_reader = csv.reader(iter(fh.readlines()), delimiter=DELIMITER, quotechar='"')
                 # TODO: skip over the header line
-                for (line_num, row) in enumerate(csv_reader):
+                line = 0
+                for row in csv_reader:
+                    debug.trace_fmt(6, "{l}: {r}", l=line, r=row)
                     doc_id = row[0]
-                    doc_text = system.from_utf8(row[1])
+                    try:
+                        doc_text = system.from_utf8(row[1])
+                    except:
+                        debug.trace_fmt(5, "Exception processing line {l}", l=line)
+                        doc_text = ""
                     corpus[doc_id] = doc_text
-                    doc_filenames[doc_id] = filename + ":" + str(line_num)
+                    doc_filenames[doc_id] = filename + ":" + str(i + 1)
+                    line += 1
         # Otherwise, treat entire file as document and use command-line position as the document ID
         else:
             doc_id = str(i + 1)
@@ -169,6 +226,8 @@ def main():
             corpus[doc_id] = doc_text
             doc_filenames[doc_id] = filename
     debug.trace_object(7, corpus, "corpus")
+    if CORPUS_DUMP:
+        system.save_object(CORPUS_DUMP, corpus)
 
     # Derive headers
     headers = ["term"]
@@ -191,8 +250,21 @@ def main():
         top_term_info = corpus.get_keywords(document_id=doc_id,
                                             idf_weight=IDF_WEIGHTING,
                                             limit=num_top_terms)
-        for (term, score) in [(t.ngram, t.score)
-                              for t in top_term_info if t.ngram.strip()]:
+        # Optionally limit the result to terms that don't overlap with higher weighted ones.
+        # TODO: Allow overlap if the terms occur in different parts of the document.
+        if PRUNE_SUBSUMED_TERMS:
+            top_terms = [term_info.ngram.strip() for term_info in top_term_info]
+            #
+            ## OLD:
+            ## def is_subsumed_in_top(term):
+            ##     "Whether TERM is subsumed by another term (in TOP_TERM_INFO from contenxt)"""
+            ##     return is_subsumed(term, top_terms)
+            #
+            ## top_term_info = [t for t in top_term_info if (not is_subsumed_in_top(t.ngram.strip()))]
+            top_term_info = [ti for (i, ti) in enumerate(top_term_info) 
+                             if (not is_subsumed(ti.ngram, top_terms[0: i]))]
+        for (term, score) in [(ti.ngram, ti.score)
+                              for ti in top_term_info if ti.ngram.strip()]:
             # Get scores including component values (e.g., IDF)
             scores = []
             if show_frequency:
@@ -200,6 +272,7 @@ def main():
                 scores.append(corpus.df_freq(term))
             if show_subscores:
                 scores.append(corpus[doc_id].tf(term, tf_weight=TF_WEIGHTING))
+                # TODO; idf_weight=TDF_WEIGHTING
                 scores.append(corpus.idf(term))
             scores.append(score)
 

@@ -3,7 +3,6 @@
 # Performs text classification using fine-tuning of BERT models,
 #
 # coding=utf-8
-# Copyright 2018 The Google AI Language Team Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -41,6 +40,9 @@ from bert import modeling
 from bert import optimization
 from bert import tokenization
 import tensorflow as tf
+
+# TPO: used just for start/end timestamps
+import debug                            # pylint: disable=unused-import
 
 flags = tf.flags
 
@@ -857,10 +859,11 @@ def convert_examples_to_features(examples, label_list, max_seq_length,
 
 def main(_):
   tf.logging.set_verbosity(tf.logging.INFO)
-  # TPO: use DEBUG if DEBUG_LEVEL >= 6
+  # TPO: use DEBUG logging if environment DEBUG_LEVEL >= 5
+  # TODO: system.getenv_int(...)
   try:
     debug_level = os.environ.get("DEBUG_LEVEL", 0)
-    if (int(debug_level) >= 6):
+    if (int(debug_level) >= 5):
       sys.stderr.write("Setting logging to DEBUG\n")
       tf.logging.set_verbosity(tf.logging.DEBUG)
   except:

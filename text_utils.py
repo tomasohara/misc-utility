@@ -14,6 +14,7 @@
 # - Add pointer to specific packages better for production use.
 # - Move HTML-specific functions into html_utils.py.
 #
+#
 
 """Miscellaneous text utility functions"""
 
@@ -29,7 +30,7 @@ import sys
 
 # Local packages
 import debug
-from regex import my_re
+from my_regex import my_re
 import system
 from system import to_int
 
@@ -196,14 +197,43 @@ def version_to_number(version, max_padding=3):
 
 def extract_string_list(text):
     """Extract list of string values in TEXT string separated by spacing or a comma.
-    Note: the string values currently cannot be quoted (i.e., no embedded spaces)."""
+    Note: quotes can be used if there are embedded spaces"""
+    ## OLD: Note: the string values currently cannot be quoted (i.e., no embedded spaces)."""
     # EX: extract_string_list("1, 2,3 4") => ['1', '2', '3', '4']
     # EX: extract_string_list(" ") => []
-    # TODO: add support for quoted items (e.g., "'my dog', 'likes', 'no cats' ")
+    # EX: extract_string_list("'my dog'  likes  'my  hot  dog'") => ['my dog', 'likes', 'my  hot  dog']
+
+    # Convert commas and whitespace to be blanks
     normalized_text = text.replace(",", " ").strip()
-    value_list = re.split(" +", normalized_text)
-    if (value_list == [""]):
-        value_list = []
+    normalized_text = re.sub(r"\s", " ", normalized_text)
+    debug.trace_fmtd(6, "normalized_text1: {nt}", nt=normalized_text)
+
+    # Change spaces within embedded quotes to be new-page (i.e., ^L)
+    max_tries = 1 + text.count(" ")
+    num_tries = 0
+    quoted_space_regex = r"(['\"])([^ '\"]+) ([^'\"]+)\1"
+    while (num_tries < max_tries):
+        num_tries += 1
+        new_normalized_text = re.sub(quoted_space_regex, r"\1\2\f\3\1", normalized_text)
+        if (new_normalized_text == normalized_text):
+            break
+        normalized_text = new_normalized_text
+        debug.trace_fmtd(7, "sub{i}: {nt}", i=num_tries, nt=normalized_text)
+    debug.assertion(num_tries < max_tries)
+    debug.trace_fmtd(6, "normalized_text2: {nt}", nt=normalized_text)
+
+    # Change other spaces to be tab delimited then restore spaces.
+    normalized_text = re.sub(" +", "\t", normalized_text)
+    normalized_text = re.sub(" +", "\t", normalized_text)
+    normalized_text = re.sub("\f", " ", normalized_text)
+    debug.trace_fmtd(6, "normalized_text3: {nt}", nt=normalized_text)
+    
+    # Split based on tabs and remove outer quotes
+    ## OLD: value_list = re.split(" +", normalized_text)
+    value_list = re.split("\t", normalized_text)
+    for (i, value) in enumerate(value_list):
+        if re.search("^" + quoted_space_regex + "$", value):
+           value_list[i] = value[1:-1]
     debug.assertion("" not in value_list)
     debug.trace_fmtd(5, "extract_string_list({t}) => {vl}", t=text, vl=value_list)
     return value_list

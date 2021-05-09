@@ -12,6 +12,7 @@
 # - Add Extreme Gradient Boost (XGBoost).
 # - Put web server in separate module;
 #
+#
 
 """Text categorization support"""
 
@@ -25,23 +26,34 @@ from collections import defaultdict
 # Installed packages
 import cherrypy
 import numpy
-from sklearn.feature_extraction.text import CountVectorizer, TfidfTransformer
+import pandas
+from sklearn.base import BaseEstimator, ClassifierMixin
+## OLD: from sklearn.feature_extraction.text import CountVectorizer, TfidfTransformer
+from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.naive_bayes import MultinomialNB
 from sklearn.linear_model import SGDClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.svm import SVC
 from sklearn.pipeline import Pipeline
 from sklearn import metrics
+from sklearn.utils.multiclass import unique_labels
 ## import xgboost as xgb
 
 # Local packages
 import debug
+import glue_helpers as gh
+import misc_utils as misc
 import system
+
+#................................................................................
+# Constants (e.g., environment-based options)
 
 SERVER_PORT = system.getenv_integer("SERVER_PORT", 9440)
 OUTPUT_BAD = system.getenv_bool("OUTPUT_BAD", False)
 CONTEXT_LEN = system.getenv_int("CONTEXT_LEN", 512)
 VERBOSE = system.getenv_bool("VERBOSE", False)
+OUTPUT_CSV = system.getenv_bool("OUTPUT_CSV", False)
+BASENAME = system.getenv_text("BASENAME", "textcat")
 
 # Options for Support Vector Machines (SVM)
 #
@@ -69,32 +81,57 @@ SGD_MAX_ITER = system.getenv_int("SGD_MAX_ITER", 5)
 ## OLD" SGD_TOLERANCE = system.getenv_float("SGD_TOLERANCE", None)
 SGD_VERBOSE = system.getenv_bool("SGD_VERBOSE", False)
 
-# Options for Extreme Gradient Boost (XGBoos)
+# Options for Extreme Gradient Boost (XGBoost)
 USE_XGB = system.getenv_bool("USE_XGB", False)
 if USE_XGB:
     import xgboost as xgb
 XGB_USE_GPUS = system.getenv_bool("XGB_USE_GPUS", False)
 
-# Options for Logistic Regression
+# Options for Logistic Regression (LR)
 # TODO: add regularization
 USE_LR = system.getenv_bool("USE_LR", False)
 
-# TODO: Options for Naive Bayes (the default)
+# Options for GPU usage
+GPU_DEVICE = system.getenv_text("GPU_DEVICE", "",
+                                "Device number for GPU (e.g., shown under nvidia-smi)")
+
+# Options for TFIDF transformation
+# TODO: add others from sklearn/feature_extraction/text.py
+# ex: min/max_df
+TFIDF_MAX_TERMS = system.getenv_int("MAX_TERMS", None,
+                                    "Maximum number of terms in TF/IDF matrix")
+TFIDF_MIN_NGRAM = system.getenv_int("MIN_NGRAM_SIZE", None)
+TFIDF_MAX_NGRAM = system.getenv_int("MAX_NGRAM_SIZE", None)
+TFIDF_MIN_DF = system.getenv_float("MIN_DF", None)
+TFIDF_MAX_DF = system.getenv_float("MAX_DF", None)
+
+# TODO: Options for Naive Bayes (NB), the default
 all_use_settings = [USE_SVM, USE_SGD, USE_XGB, USE_LR]
 USE_NB = (not any(all_use_settings))
 debug.assertion(sum([int(use) for use in all_use_settings]) <= 1)
 
+# Globals
+tfidf_vectorizer = None
+
 #................................................................................
 # Utility functions
 
-def sklearn_report(actual, predicted, labels, stream=sys.stdout):
+def sklearn_report(actual, predicted, actual_labels, predicted_labels, stream=sys.stdout):
     """Print classification analysis report for ACTUAL vs. PREDICTED indices with original LABELS and using STREAM"""
     stream.write("Performance metrics:\n")
-    stream.write(metrics.classification_report(actual, predicted, target_names=labels))
+    ## BAD: stream.write(metrics.classification_report(actual, predicted, target_names=labels))
+    indices = unique_labels(actual, predicted)
+    labels = unique_labels(actual_labels, predicted_labels)
+    stream.write(metrics.classification_report(actual, predicted,
+                                               labels=indices, target_names=labels))
     stream.write("Confusion matrix:\n")
     # TODO: make showing all cases optional
-    possible_indices = range(len(labels))
-    confusion = metrics.confusion_matrix(actual, predicted, possible_indices)
+    ## BAD: possible_indices = range(len(labels))
+    ## BAD
+    ## possible_indices = list(range(len(labels)))
+    ## confusion = metrics.confusion_matrix(actual, predicted, possible_indices)
+    confusion = metrics.confusion_matrix(actual, predicted,
+                                         labels=indices)
     # TODO: make sure not clipped
     stream.write("{cm}\n".format(cm=confusion))
     debug.trace_object(6, confusion, "confusion")
@@ -125,7 +162,8 @@ def read_categorization_data(filename):
                 labels.append(items[0].lower())
                 values.append(items[1])
             else:
-                debug.trace_fmtd(4, "Warning: Ignoring item w/ unexpected format at line {num}",
+                ## OLD: debug.trace_fmtd(4, "Warning: Ignoring item w/ unexpected format at line {num}",
+                debug.trace_fmtd(4, "Warning: Ignoring item w/ unexpected format at line {num}: items: len={l} first={f} second={s}",  l=len(items), f=gh.elide(items[0]), s=gh.elide(items[0]),
                                  num=(i + 1))
     ## OLD: debug.trace_fmtd(7, "table={t}", t=table)
     debug.trace_values(7, zip(labels, values), "table")
@@ -133,6 +171,58 @@ def read_categorization_data(filename):
 
 #...............................................................................
 
+class ClassifierWrapper(BaseEstimator, ClassifierMixin):
+    """Wrapper around arbitrary categorizer object, original used for the sake of tracing the feature vectors derived via pipelines"""
+    ## TODO: rework by specializing one classifier (e.g., MultinomialNB) so that fit() only needs to be defined
+
+    def __init__(self, classifier):
+        """Constructor: records CLASSIFIER"""
+        debug.trace_fmt(6, "{cl}.__init__(clf={c})", c=classifier, cl=str(type(self)))
+        self.classifier = classifier
+
+    def _get_param_names(self):
+        """Get parameter names for the estimator"""
+        # Note: This is not class method as in BaseEstimator.
+        # pylint: disable=protected-access
+        return self.classifier._get_param_names()
+
+    def get_params(self, deep=True):
+        """Return list of parameters supported"""
+        return self.classifier.get_params(deep=deep)
+
+    def fit(self, training_x=None, training_y=None):
+        """Delegates fit() invocation to classifier, after outputing CSV if desired"""
+        if OUTPUT_CSV:
+            ## TEMP: save in pickle format for debugging
+            system.save_object(BASENAME + ".x.csv.pickle", training_x)
+            system.save_object(BASENAME + ".y.csv.pickle", training_y)
+            ##
+            df_x = pandas.DataFrame(training_x.toarray())
+            df_y = pandas.DataFrame(training_y)
+            
+            ## HACK: use global pipeline to get feature names
+            def normalize(feature):
+                """Normalize feature name"""
+                return feature.replace(" ", "_")
+            ##
+            features = [normalize(f) for f in tfidf_vectorizer.get_feature_names()]
+            df_x.to_csv(BASENAME + ".x.csv.list", header=features, index=False)
+            df_y.to_csv(BASENAME + ".y.csv.list", header=["_class_"], index=False)
+        return self.classifier.fit(training_x, training_y)
+
+    def predict(self, sample):
+        """Return predicted class for each SAMPLE (returning vector)"""
+        return self.classifier.predict(sample)
+
+    def score(self, X, y, sample_weight=None):
+        """Return average accuracy of prediction of X matrix vs Y vector"""
+        return self.classifier.score(X, y, sample_weight=sample_weight)
+    
+    def predict_proba(self, sample):
+        """Return probabilities of outcome classes predicted for each SAMPLE (returning matrix)"""
+        return self.classifier.predict_proba(sample)
+
+    
 class TextCategorizer(object):
     """Class for building text categorization"""
     # TODO: add cross-fold validation support; make TF/IDF weighting optional
@@ -156,28 +246,67 @@ class TextCategorizer(object):
                                        alpha=SGD_ALPHA,
                                        random_state=SGD_SEED,
                                        ## TODO: max_iter=SGD_MAX_ITER,
-                                       n_iter=SGD_MAX_ITER,
+                                       ## OLD: n_iter=SGD_MAX_ITER,
                                        ## OLD: tol=SGD_TOLERANCE
                                        verbose=SGD_VERBOSE)
+            ## HACK: support old version and new (thanks sklearn!)
+            ## TODO: make sure this won't break (e.g., due to visibility)
+            num_iter_attribute = "max_iter"
+            if (not hasattr(classifier, num_iter_attribute)):
+                num_iter_attribute = "n_iter"
+            debug.assertion(hasattr(classifier, num_iter_attribute))
+            setattr(classifier, num_iter_attribute, SGD_MAX_ITER)
         elif USE_XGB:
             # TODO: rework to just define classifier here and then pipeline at end.
             # in order to eliminate redundant pipeline-specification code.
+            # TODO: n_jobs=-1
             misc_xgb_params = {}
-            if not XGB_USE_GPUS:
-                misc_xgb_params['n_gpus'] = 0
-            debug.trace_fmt(6, 'misc_xgb_params={m}', m=misc_xgb_params)
+            if XGB_USE_GPUS:
+                misc_xgb_params.update({'tree_method': 'gpu_hist'})
+                misc_xgb_params.update({'predictor': 'gpu_predictor'})
+            if GPU_DEVICE:
+                misc_xgb_params.update({'gpu_id': GPU_DEVICE})
+            ## OLD:
+            ## if not XGB_USE_GPUS:
+            ##    misc_xgb_params['n_gpus'] = 0
+            ## debug.trace_fmt(6, 'misc_xgb_params={m}', m=misc_xgb_params)
+            debug.trace_fmt(4, 'misc_xgb_params={m}', m=misc_xgb_params)
             classifier = xgb.XGBClassifier(**misc_xgb_params)
         elif USE_LR:
             classifier = LogisticRegression()
         else:
             debug.assertion(USE_NB)
             classifier = MultinomialNB()
+        if OUTPUT_CSV:
+            classifier = ClassifierWrapper(classifier)
+            debug.trace_fmt(4, "Using wrapper ({cl}) for CSV hooks", cl=type(classifier))
 
         # Add classifier to text categorization pipeline]
+        tfidf_parameters = {}
+        if TFIDF_MAX_TERMS:
+            ## TODO: sort by TF/IDF (not TF)
+            tfidf_parameters['max_features'] = TFIDF_MAX_TERMS
+        if TFIDF_MIN_NGRAM or TFIDF_MAX_NGRAM:
+            min_ngram = (TFIDF_MIN_NGRAM or 1)
+            max_ngram = (TFIDF_MAX_NGRAM or 1)
+            debug.assertion(1 <= min_ngram <= max_ngram)
+            tfidf_parameters['ngram_range'] = (min_ngram, max_ngram)
+        if TFIDF_MIN_DF:
+            tfidf_parameters['min_df'] = TFIDF_MIN_DF
+        if TFIDF_MAX_DF:
+            tfidf_parameters['max_df'] = TFIDF_MAX_DF
         self.cat_pipeline = Pipeline(
-            [('vect', CountVectorizer()),
-             ('tfidf', TfidfTransformer()),
+            [## OLD:
+             ## ('vect', CountVectorizer()),
+             ## ('tfidf', TfidfTransformer()),
+             ## NOTE: TfidfVectorizer same as CountVectorizer plus TfidfTransformer.
+             ('tfidf', TfidfVectorizer(**tfidf_parameters)),
              ('clf', classifier)])
+        if OUTPUT_CSV:
+            pipeline_steps = list(self.cat_pipeline._iter())
+            global tfidf_vectorizer
+            tfidf_vectorizer = pipeline_steps[0][2]
+            debug.assertion(pipeline_steps[0][1] == 'tfidf')
             
         return
 
@@ -188,7 +317,8 @@ class TextCategorizer(object):
         self.keys = sorted(numpy.unique(labels))
         label_indices = [self.keys.index(l) for l in labels]
         self.classifier = self.cat_pipeline.fit(values, label_indices)
-        debug.trace_object(7, self.classifier, "classifier")
+        ## OLD: debug.trace_object(7, self.classifier, "classifier")
+        debug.trace_object(7, self, "TextCategorizer")
         return
 
     def test(self, filename, report=False, stream=sys.stdout):
@@ -196,7 +326,10 @@ class TextCategorizer(object):
         debug.trace_fmtd(4, "tc.test({f})", f=filename)
         ## OLD: (labels, values) = read_categorization_data(filename)
         (all_labels, all_values) = read_categorization_data(filename)
+        debug.trace_values(6, all_labels, "all_labels")
+        debug.trace_values(6, [gh.elide(v) for v in all_values], "all_values")
 
+        # Prune cases with classes not in training data
         ## BAD: actual_indices = [self.keys.index(l) for l in labels]
         # TODO: use hash of positions
         actual_indices = []
@@ -210,10 +343,18 @@ class TextCategorizer(object):
             else:
                 debug.trace_fmtd(4, "Ignoring test label {l} not in training data (line {n})",
                                  l=label, n=(i + 1))
+
+        # Perform classification and determine accuracy
         predicted_indices = self.classifier.predict(values)
+        debug.assertion(len(actual_indices) == len(predicted_indices))
+        ## BAD: debug.trace_fmt(5, "actual: {act}\npredct: {pred}\n", act=actual_indices, pred=predicted_indices)
+        debug.trace_values(6, actual_indices, "actual")
+        debug.trace_values(6, predicted_indices, "predicted")
         ## TODO: predicted_labels = [self.keys[i] for i in predicted_indices]
         num_ok = sum([(actual_indices[i] == predicted_indices[i]) for i in range(len(actual_indices))])
         accuracy = float(num_ok) / len(values)
+
+        # Output classification report
         if report:
             if VERBOSE:
                 stream.write("\n")
@@ -228,8 +369,14 @@ class TextCategorizer(object):
                 stream.write("\n")
             ## BAD: sklearn_report(actual_indices, predicted_indices, self.keys, stream)
             ## OLD: keys = sorted(numpy.unique(labels))
-            keys = self.keys
-            sklearn_report(actual_indices, predicted_indices, keys, stream)
+            ## BAD: keys = self.keys
+            ## BAD: sklearn_report(actual_indices, predicted_indices, keys, stream)
+            actual_labels = [self.keys[i] for i in actual_indices]
+            predicted_labels = [self.keys[i] for i in predicted_indices]
+            
+            sklearn_report(actual_indices, predicted_indices, actual_labels, predicted_labels, stream)
+
+        # Show cases not classified OK
         if OUTPUT_BAD:
             bad_instances = "Actual\tBad\tText\n"
             # TODO: for (i, actual_index) in enumerate(actual_indices)
@@ -244,7 +391,10 @@ class TextCategorizer(object):
                         g=self.keys[actual_indices[i]],
                         b=self.keys[predicted_indices[i]],
                         t=context)
-            system.write_file(filename + ".bad", bad_instances)
+            ## OLD: system.write_file(filename + ".bad", bad_instances)
+            bad_filename = filename + ".bad"
+            system.write_file(bad_filename, bad_instances)
+            debug.trace_fmt(4, "Result ({f}):\n{r}", f=bad_filename, r=system.read_file(bad_filename))
         return accuracy
 
     def categorize(self, text):
@@ -254,8 +404,23 @@ class TextCategorizer(object):
         debug.trace_fmtd(6, "\ttext={t}", t=text)
         index = self.classifier.predict([text])[0]
         label = self.keys[index]
-        debug.trace_fmtd(5, "categorize() => {r}", r=label)
+        debug.trace_fmtd(6, "categorize() => {r}", r=label)
         return label
+
+    def class_probabilities(self, text):
+        """Return probability distribution for TEXT"""
+        debug.trace(4, "tc.class_probabilities(_)")
+        debug.trace_fmtd(6, "\ttext={t}", t=text)
+        ## BAD: class_names = self.classifier.classes_
+        class_names = self.keys
+        class_probs = self.classifier.predict_proba([text])[0]
+        debug.trace_object(7, self.classifier)
+        debug.trace_fmtd(6, "class_names: {cn}\nclass_probs: {cp}", cn=class_names, cp=class_probs)
+        ## BAD: dist = str(zip(class_names, class_probs))
+        sorted_scores = misc.sort_weighted_hash(dict(zip(class_names, class_probs)))
+        dist=" ".join([(k + ": " + system.round_as_str(s)) for (k, s) in sorted_scores])
+        debug.trace_fmtd(5, "class_probabilities() => {r}", r=dist)
+        return dist
 
     def save(self, filename):
         """Save classifier to FILENAME"""
@@ -295,7 +460,7 @@ CATEGORY_IMAGE_HASH = {
     "business": "/static/business.jpg",
     "computers": "/static/computers.jpg",
     "drugs": "/static/health.jpg",
-    "econimics": "/static/econimics.jpg",
+    "economics": "/static/economics.jpg",
     "education": "/static/education.png",
     "engineering": "/static/engineering.jpg",
     "food": "/static/food.jpg",
@@ -310,6 +475,7 @@ CATEGORY_IMAGE_HASH = {
     "military": "/static/military.png",
     "movie": "/static/movie.jpg",
     "music": "/static/music.jpg",
+    "news": "/static/news.png",
     "pets": "/static/animals.png",
     "philosophy": "/static/philosophy.jpg",
     "politics": "/static/politics.png",
@@ -422,7 +588,7 @@ class web_controller(object):
     @cherrypy.expose
     def index(self, **kwargs):
         """Website root page (e.g., web site overview and link to search)"""
-        debug.trace_fmtd(6, "wc.index(s:{s}, kw:{kw})", s=self, kw=kwargs)
+        debug.trace_fmtd(5, "wc.index(s:{s}, kw:{kw})", s=self, kw=kwargs)
         ## OLD: return "not much here excepting categorize and get_category_image"
         base_url = cherrypy.url('/')
         debug.trace_fmt(4, "base_url={b}", b=base_url)
@@ -433,14 +599,23 @@ class web_controller(object):
     @cherrypy.expose
     def categorize(self, text, **kwargs):
         """Infer category for TEXT"""
-        debug.trace_fmtd(6, "wc.categorize(s:{s}, _, kw:{kw})", s=self, kw=kwargs)
+        debug.trace_fmtd(5, "wc.categorize(s:{s}, _, kw:{kw})", s=self, kw=kwargs)
         return self.text_cat.categorize(text)
 
+    @cherrypy.expose
+    def class_probabilities(self, text, **kwargs):
+        """Get category probability distribution for TEXT"""
+        debug.trace_fmtd(5, "wc.class_probabilities(s:{s}, _, kw:{kw})", s=self, kw=kwargs)
+        return self.text_cat.class_probabilities(text)
+
+    probs = class_probabilities
+    
     @cherrypy.expose
     ## @cherrypy.tools.json_out()
     def get_category_image(self, text, **kwargs):
         """Infer category for TEXT and return image"""
         debug.trace_fmtd(5, "wc.get_category_image(_, {kw}); self={s}", t=text, s=self, kw=kwargs)
+        ## TEST: debug.trace_fmtd(6, "\ttext={t}", t=text)
         cat = self.categorize(text, **kwargs)
         image = self.category_image[cat]
         # for JSONP, need to add callback call and format the call
@@ -453,9 +628,11 @@ class web_controller(object):
         result = json.dumps({"image": image, "id": image_id})
         if 'callback' in kwargs:
             callback_function = kwargs['callback']
+            debug.trace_fmtd(5, "Invoking callback {cb}", cb=callback_function)
             data = kwargs.get("data", "")
             result = (callback_function + "(" + result + ", " + data + ");")
-        debug.trace_fmtd(6, "wc.get_category_image() => {r}", r=result)
+        ## OLD: debug.trace_fmtd(6, "wc.get_category_image() => {r}", r=result)
+        debug.trace_fmtd(6, "wc.get_category_image({t}) => {r}; cat={c}", t=text, r=result, c=cat)
         return result
 
     @cherrypy.expose

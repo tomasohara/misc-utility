@@ -29,6 +29,7 @@
 # - Add support for JSON.stringify.
 # - Handle function arguments split across lines.
 #
+#
 
 """Adds function trace statements to Javascript code"""
 

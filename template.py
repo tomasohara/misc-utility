@@ -8,6 +8,10 @@
 #     def __init__(self, *args, **kwargs):
 #        super(MyClass, self).__init__(*args, **kwargs)
 #
+#------------------------------------------------------------------------
+#
+# The software is Open Source, licensed under the GNU Lesser General Public Version 3 (LGPLv3). See LICENSE.txt in repository.
+#
 
 """TODO: what module does (brief)"""
 

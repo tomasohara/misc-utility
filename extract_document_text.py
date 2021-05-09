@@ -11,6 +11,7 @@
 # - Use file date for default date affix.
 # - Handle UTF8.
 #
+#
 
 """Extract text from common document types"""
 

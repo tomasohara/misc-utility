@@ -8,6 +8,7 @@
 # - Add functions to facilitate functional programming (e.g., to simply debugging traces).
 # - Use functions integrated into juju/common to minimize dual mainentance issues.
 #
+#
 
 """Helpers gluing scripts together"""
 
@@ -20,11 +21,12 @@ import sys
 import tempfile
 import textwrap
 
+import debug
 import tpo_common as tpo
 from tpo_common import debug_format, debug_print, print_stderr, setenv
 
 if sys.version_info[0] < 3:
-    from commands import getoutput
+    from commands import getoutput       # pylint: disable=import-error
 else:
     from subprocess import getoutput     # pylint: disable=no-name-in-module
 
@@ -63,7 +65,8 @@ def basename(filename, extension=None):
     # EX: basename("fubar.py", "py") => "fubar."
     # EX: basename("/tmp/solr-4888.log", ".log") => "solr-4888"
     base = os.path.basename(filename)
-    if extension != None:
+    ## OLD: if extension != None:
+    if extension is None:
         pos = base.find(extension)
         if pos > -1:
             base = base[:pos]
@@ -213,6 +216,8 @@ def run(command, trace_level=4, subtrace_level=None, just_issue=False, **namespa
     # it is not supported under Windows. To avoid unexpected porting issues, clients
     # should replace 'run("... >| f")' usages with 'delete_file(f); run(...)'.
     assertion(">|" not in command_line)
+    result = None
+    ## TODO: if (just_issue or not wait): ... else: ...
     result = getoutput(command_line) if wait else str(os.system(command_line))
     # Restore debug level setting in environment
     if debug_level_env:
@@ -234,7 +239,7 @@ def issue(command, trace_level=4, subtrace_level=None, **namespace):
     # Add stderr redirect to temporary log file, unless redirection already present
     log_file = None
     if tpo.debugging() and (not "2>" in command) and (not "2|&1" in command):
-        ## TODO: use a different suffix each time to aid in debuggin
+        ## TODO: use a different suffix each time to aid in debugging
         log_file = TEMP_LOG_FILE
         ## BAD: command += " 2>| " + log_file
         delete_file(log_file)
@@ -253,6 +258,19 @@ def issue(command, trace_level=4, subtrace_level=None, **namespace):
         if not tpo.detailed_debugging():
             delete_file(log_file)
     return
+
+
+def get_hex_dump(text, break_newlines=False):
+    """Get hex dump for TEXT, optionally BREAKing lines on NEWLINES"""
+    # TODO: implement entirely within Pyton (e.g., via binascii.hexlify)
+    # EX: get_hex_dump
+    debug.trace_fmt(6, "get_hex_dump{{t}, {bn})", t=text, bn=break_newlines)
+    in_file = get_temp_file() + ".in.list"
+    out_file = get_temp_file() + ".out.list"
+    write_file(in_file, text)
+    run("perl -Ss hexview.perl -newlines {i} > {o}", i=in_file, o=out_file)
+    result = read_file(out_file)    
+    return result
 
 
 def extract_matches(pattern, lines, fields=1):

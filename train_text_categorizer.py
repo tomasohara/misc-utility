@@ -3,8 +3,14 @@
 # Trains text categorizer using Scikit-Learn. See
 #    http://scikit-learn.org/stable/tutorial/text_analytics/working_with_text_data.html
 #
+# Notes:
+# - This is a simple wrapper around the code in text_categorizer.py, created
+#   to clarify how training is done.
+#
 # TODO:
-# - Rename to something like apply_text_categorizer.py.
+# - Rename to something like apply_text_categorizer.py, as now supports
+#   usage with a pre-trained model.
+#
 #
 
 """Trains text categorization"""
@@ -39,6 +45,10 @@ def main(args=None):
     # Check command line arguments
     if args is None:
         args = sys.argv
+        debug.trace_fmtd(4, "len(args)={l}", l=len(args))
+        if (len(args) == 1) and system.getenv_text("ARGS"):
+            args += system.getenv_text("ARGS").split()
+            debug.trace_fmtd(4, "len(args)={l}; args={a}", l=len(args), a=args)
         if len(args) <= 2:
             usage()
             return
@@ -65,7 +75,8 @@ def main(args=None):
         print("Accuracy over {f}: {acc}".format(acc=accuracy, f=testing_filename))
 
     # Show usage if nothing actually done (e.g., due to too many -'s for filenames)
-    if (not (new_model or accuracy)):
+    ## OLD: if (not (new_model or accuracy)):
+    if (not (new_model or (accuracy is not None))):
         usage()
               
     return

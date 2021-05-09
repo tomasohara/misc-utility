@@ -3,7 +3,6 @@
 # Performs text classification using fine-tuning of ALBERT models,
 #
 # coding=utf-8
-# Copyright 2019 The Google Research Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -25,7 +24,17 @@
 # - Compute Matthews correlation coefficient (MCC) for binary classification
 #   (e.g., CoLA). MCC is the metric used in the GLUE evaluation (see
 #   https://gluebenchmark.com/tasks and en.wikipedia.org/wiki/Matthews_correlation_coefficient.
-# 
+# - Add sanity check for unused arguments (e.g., --do_test).
+#...............................................................................
+# HACK: Needed to add symbolic links to albert data to reflect what was expected
+# by the script.
+#
+#   albert_model.ckpt.data-00000-of-00001 -> model.ckpt-best.data-00000-of-00001
+#   albert_model.ckpt.index -> model.ckpt-best.index
+#   albert_model.ckpt.meta -> model.ckpt-best.meta
+#   albert.vocab -> 30k-clean.vocab
+#   albert.model -> 30k-clean.model
+#
 
 # Lint as: python2, python3
 """BERT finetuning runner with sentence piece tokenization."""
@@ -53,7 +62,7 @@ from tensorflow.contrib import cluster_resolver as contrib_cluster_resolver
 from tensorflow.contrib import data as contrib_data
 from tensorflow.contrib import tpu as contrib_tpu
 
-## TPO: flags support take from BERT version
+## TPO: flags support taken from BERT version
 flags = tf.flags
 
 FLAGS = tf.flags.FLAGS
@@ -581,7 +590,7 @@ def convert_single_example(ex_index, example, label_list, max_seq_length,
 
 
 def file_based_convert_examples_to_features(
-    examples, label_list, max_seq_length, tokenizer, output_file):
+  examples, label_list, max_seq_length, tokenizer, output_file):
   """Convert a set of `InputExample`s to a TFRecord file."""
 
   writer = tf.python_io.TFRecordWriter(output_file)
@@ -1103,7 +1112,7 @@ def main(_):
     # End of story
     debug.trace_fmt(5, "out main()")
 
-## TPO: following based on BERT's script
+## TPO: following based on BERT's version of script
 if __name__ == "__main__":
   flags.mark_flag_as_required("data_dir")
   flags.mark_flag_as_required("task_name")

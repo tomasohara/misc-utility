@@ -3,6 +3,7 @@
 # extract_wiki_token.py: Extracts tokens from each of the articles in a
 # Wikipedia dump
 #
+#
 
 """Extraction wikipedia article tokens"""
 

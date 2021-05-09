@@ -31,6 +31,8 @@
 # - Remove obsolete functions (e.g., get_current_function_name).
 # - Use debug_trace in place of debug_print in code run often.
 #
+#------------------------------------------------------------------------
+#
 
 """Common utility functions"""
 
@@ -870,6 +872,7 @@ def store_object(filename, object_data):
         f.close()
     return
 
+
 def dump_stored_object(object_filename, dump_filename, level=1):
     """Traces out object stored in OBJECT_FILENAME to DUMP_FILENAME"""
     # Note: convenience function for interactive usage
@@ -983,6 +986,7 @@ def format_freq_hash(freqs, label, max_num=None, prec=0, indent="\t"):
     hash_listing = normalize_unicode(label + '\n' + "\n".join(top_values))
     return hash_listing
 
+
 def union(list1, list2):
     """"Returns set union of LIST1 and LIST2 (preserving order)"""
     # TODO: rework in terms of built-in set operations???
@@ -1001,12 +1005,14 @@ def intersection(list1, list2):
     debug_format("intersection({l1}, {l2}) => {r}", 7, l1=list1, l2=list2, r=result)
     return result
 
+
 def is_subset(list1, list2):
     """Returns whether LIST1 is subset of LIST2"""
     # EX: is_subset(['mouse', 'dog'], ['dog', 'cat', 'mouse'])
     result = set(list1).issubset(set(list2))
     debug_format("subset({l1}, {l2}) => {r}", 7, l1=list1, l2=list2, r=result)
     return result
+
 
 def difference(list1, list2):
     """Returns list of items in LIST1 not in LIST2"""
@@ -1015,6 +1021,7 @@ def difference(list1, list2):
     diff = list(set(list1).difference(set(list2)))
     debug_format("difference({l1}, {l2}) => {r}", 7, l1=list1, l2=list2, r=diff)
     return diff
+
 
 def remove_all(list1, list2, ignore_case=False):
     """Removes all members of LIST2 from LIST1, similar to
@@ -1030,6 +1037,7 @@ def remove_all(list1, list2, ignore_case=False):
     debug_format("remove_all({l1}, {l2}) => {r}", 7, l1=list1, l2=list2, r=diff)
     return diff
 
+
 def equivalent(list1, list2):
     """Returns whether LIST1 and LIST2 have same entries (i.e., intersection is
     same as both ignoring duplicates)"""
@@ -1040,6 +1048,7 @@ def equivalent(list1, list2):
     debug_format("equivalent({list1}, {list1}) => {ok}", 5)
     return ok
 
+
 def append_new(in_list, item):
     """Returns copy of LIST with ITEM included unless already in it"""
     result = in_list[:]
@@ -1048,11 +1057,13 @@ def append_new(in_list, item):
     debug_print("append_new(%s, %s) => %s" % (in_list, item, result), 5)
     return result
 
+
 def extract_list(text):
     """Extract list of values from TEXT, separated by spaces or commas"""
     items = text.replace(",", " ").split()
     debug_format("extract_list({text}) = {items}", 6)
     return items
+
 
 def is_subsumed(term, other_terms):
     """Whether phrasal TERM is subsumed by a larger phrase in OTHER_TERMS, restricted to word boundaries"""
@@ -1062,6 +1073,7 @@ def is_subsumed(term, other_terms):
         if (term != other_term) and (" " + term + " ") in (" " + other_term + " "):
             return True
     return False
+
 
 PRECISION = getenv_int("ROUNDING_PRECISION", 3,
                        "Precision for rounding numbers via round_num, etc.")

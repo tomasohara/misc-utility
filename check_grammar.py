@@ -19,6 +19,7 @@
 # - Underylying support downloaded from
 #   https://extensions.openoffice.org/en/projectrelease/languagetool-21
 #
+#
 #-------------------------------------------------------------------------------
 # TODO:
 # - ???
