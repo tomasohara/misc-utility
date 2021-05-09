@@ -62,9 +62,9 @@
 # - Integrate punctuation isolation (see prep_brill.perl).
 # - Add usage examples (e.g., part-of-speech tagging).
 # - Warn that without NLTK or Enchant, the text processing just checks common cases.
-# - Reconcile with version in juju/text_analytics.
 #
-#
+
+"""Performs text processing (e.g., via tokenization via NLTK)"""
 
 #------------------------------------------------------------------------
 # Library packages
@@ -321,7 +321,7 @@ def read_freq_data(filename):
 
     # Process each line of the file
     input_handle = open(filename,"r")
-    line_num = 0;
+    line_num = 0
     for line in input_handle:
         line_num += 1
         # Ignore comments
@@ -365,7 +365,7 @@ def read_word_POS_data(filename):
 
     # Process each line of the file
     input_handle = open(filename,"r")
-    line_num = 0;
+    line_num = 0
     for line in input_handle:
         line_num += 1
         # Ignore comments
