@@ -11,8 +11,6 @@
 #--------------------------------------------------------------------------------
 # TODO: weed out tpo_common usages (work out converter script for common cases like tpo.debug_print to debug.trace and tpo.debug_format to debug.trace_fmt)
 #
-# Copyright (c) 2012-2020 Thomas P. O'Hara
-#
 
 """Wrapper class for regex match results"""
 

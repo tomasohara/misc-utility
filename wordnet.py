@@ -1,7 +1,5 @@
 # wordnet.py: module for WordNet access using NLTK WordNet package
 #
-# Copyright (c) 2012-2020 Thomas P. O'Hara
-#
 
 # TODO: used cleaned up version created for JSL usage
 from common import *

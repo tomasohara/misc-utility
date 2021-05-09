@@ -16,8 +16,6 @@
 # TODO:
 # - Add filtering (e.g., subsumption, all numbers).
 #
-# Copyright (c) 2018-2020 Thomas P. O'Hara
-#
 
 ## TODO: fix description (e.g., add pointer to VDS code)
 """TF-IDF using phrasal terms via ngram analysis"""

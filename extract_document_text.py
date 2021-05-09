@@ -11,8 +11,6 @@
 # - Use file date for default date affix.
 # - Handle UTF8.
 #
-# Copyright (c) 2012-2020 Thomas P. O'Hara
-#
 
 """Extract text from common document types"""
 

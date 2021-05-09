@@ -14,8 +14,6 @@
 # - Add pointer to specific packages better for production use.
 # - Move HTML-specific functions into html_utils.py.
 #
-# Copyright (c) 2012-2020 Thomas P. O'Hara
-#
 
 """Miscellaneous text utility functions"""
 

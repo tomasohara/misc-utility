@@ -11,8 +11,6 @@
 # - Add safe_int from tpo_common, as includes support for base (e.g., 16 for hex).
 # - Reconcile against functions in tpo_common.py (e.g., to make sure functionality covered and similar tracing supported).
 #
-# Copyright (c) 2012-2020 Thomas P. O'Hara
-#
 
 """System-related functions"""
 

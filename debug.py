@@ -16,8 +16,6 @@
 # - Rename as debug_utils so clear that non-standard package.
 # - Add exception handling throughout (e.g., more in trace_object).
 #
-# Copyright (c) 2017-2020 Thomas P. O'Hara
-#
 
 """Debugging functions (e.g., tracing)"""
 

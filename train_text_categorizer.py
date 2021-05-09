@@ -6,8 +6,6 @@
 # TODO:
 # - Rename to something like apply_text_categorizer.py.
 #
-# Copyright (c) 2012-2020 Thomas P. O'Hara
-#
 
 """Trains text categorization"""
 

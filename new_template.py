@@ -2,9 +2,6 @@
 # 
 # TODO what the script does (detailed)
 #
-#------------------------------------------------------------------------
-# Copyright (c) 2020 Thomas P. O'Hara
-#
 
 """TODO: what module does (brief)"""
 

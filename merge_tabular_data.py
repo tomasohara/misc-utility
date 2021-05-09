@@ -10,8 +10,6 @@
 # - Rework hash reading so merging can be done at same time to avoid memory
 #   overhead of second hash.
 #
-# Copyright (c) 2012-2020 Thomas P. O'Hara
-#
 
 """Merge tabular data files"""
 

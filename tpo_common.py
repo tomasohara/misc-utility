@@ -31,9 +31,6 @@
 # - Remove obsolete functions (e.g., get_current_function_name).
 # - Use debug_trace in place of debug_print in code run often.
 #
-#------------------------------------------------------------------------
-# Copyright (C) 2012-2020 Thomas P. O'Hara
-#
 
 """Common utility functions"""
 

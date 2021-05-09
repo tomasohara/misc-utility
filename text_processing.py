@@ -52,9 +52,6 @@
 # WRB   Wh-adverb
 #
 # See ftp://ftp.cis.upenn.edu/pub/treebank/doc/tagguide.ps.gz for more details.
-#------------------------------------------------------------------------
-#
-# Copyright (c) 2012-2020 Thomas P. O'Hara
 #
 
 #------------------------------------------------------------------------

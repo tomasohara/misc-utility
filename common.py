@@ -13,9 +13,6 @@
 # - add support for using pprint module
 # - add debug_print_value(var, level)
 #
-#------------------------------------------------------------------------
-# Copyright (c) 2012-2020 Thomas P. O'Hara
-#
 
 from __future__ import print_function           # enables version 3 print()
 

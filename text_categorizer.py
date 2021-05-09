@@ -12,8 +12,6 @@
 # - Add Extreme Gradient Boost (XGBoost).
 # - Put web server in separate module;
 #
-# Copyright (c) 2017-2020 Thomas P. O'Hara
-#
 
 """Text categorization support"""
 

@@ -21,8 +21,6 @@
 # - See ngram_tfdif.py for a wrapper class around tfidf for use in applications
 #   like Visual Diff Search that generate the text dynamically.
 #
-# Copyright (c) 2020 Thomas P. O'Hara
-#
 
 ## TODO: update/fix/refine description (e.g., add mention of file1, ..., fileN or of file.csv)
 """Extract text from common document types"""

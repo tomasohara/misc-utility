@@ -9,8 +9,6 @@
 # TODO:
 # - Remove extraneous byte order marks (BOM's), such as after start of file.
 #
-# Copyright (c) 2012-2020 Thomas P. O'Hara
-#
 
 """Unicode converter (e.g., UTF-16 to UTF-8)"""
 

@@ -56,9 +56,6 @@
 # - The STANFORD_PARSER_HOME environment variable specified the distribution
 # directory for the parser. See run-stanford-parser.sh.
 #
-#
-# Copyright (c) 2012-2020 Thomas P. O'Hara
-#
 
 #------------------------------------------------------------------------
 # Library packages

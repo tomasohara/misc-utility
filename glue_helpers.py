@@ -8,8 +8,6 @@
 # - Add functions to facilitate functional programming (e.g., to simply debugging traces).
 # - Use functions integrated into juju/common to minimize dual mainentance issues.
 #
-# Copyright (c) 2012-2020 Thomas P. O'Hara
-#
 
 """Helpers gluing scripts together"""
 

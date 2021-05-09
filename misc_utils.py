@@ -1,7 +1,5 @@
 # Miscellaneous functions not suitable for other modules (e.g., system.py).
 #
-# Copyright (c) 2012-2020 Thomas P. O'Hara
-#
 
 """Misc. utility functions"""
 

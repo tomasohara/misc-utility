@@ -26,8 +26,6 @@
 # - Make weekly hours optional (e.g., assume repeated day separates week).
 # - Have option to output template for current month!
 #
-# Copyright (c) 2012-2020 Thomas P. O'Hara
-#
 
 """Validates the hour tabulations in a time tracking report"""
 

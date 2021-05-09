@@ -46,8 +46,6 @@
 #            ^ \342\200\230
 # - Allow for missing day-of-week and day (e.g., "Mar 16" => "Tues 1 Mar 16 [was Mar 16]").
 #
-# Copyright (c) 2012-2020 Thomas P. O'Hara
-#
 
 """Merge textual notes by dated entries"""
 
