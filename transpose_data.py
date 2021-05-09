@@ -3,10 +3,9 @@
 # Takes an input table and transposes the rows and columns. In addition, there
 # is support for showing each field value on a separate line prefixed by the
 # column name. This is intended to make large table dumps more comprehensible,
-# such as the database for query log information under redshift.
+# such as from databases.
 #------------------------------------------------------------------------
 # Sample Input:
-# TODO: rework samples to be non-Juju
 #
 #   i_timestamp   | i_ip_addr1 |             i_session_id                 | i_keyword
 #   1384983367.79 | 1138872328 | 003a4a80db5eda5fa5e7359d57afc29ac1fec377 | Staples Retail Office Products
@@ -22,35 +21,7 @@
 #   i_keyword: Staples Retail Office Products | Quality | . | medical assistant
 #
 #   via: ./transpose-data.py --elide --delim=' | ' < sample-transpose-input.data 
-#------------------------------------------------------------------------
-# Illustration of using script to extract top sessions from query logs (via Bash)
-# 
-# - Extract data from redshift and format in tab-delimited formtat
-#   note: based on first 100,000 from ____qiqcix table under redshift
-#
-#    $ /usr/bin/time echo 'SELECT * FROM ____qiqcix LIMIT 100000;' | psql -h rsjuju.cjhlfgrlo68q.us-east-1.redshift.amazonaws.com -p 5439 rsjuju >| redshift-____qiqcix.first-100K.data 2>| redshift-____qiqcix.first-100K.data.log
-#
-# - Extract information for top-40 sessions by request count, saving each in separate trasposed file.
-#    $ export TOPN=40; (
-#      logfile=redshift-____qiqcix.first-100K.data
-#      outdir=/tmp/top$TOPN-session
-#      mkdir $outdir
-#      head -1 $logfile > $outdir/$logfile.header
-#      cut -f9 -d'|' $logfile | count_it.perl '\S+' - > $outdir/session_id.freq
-#      head -$TOPN session_id.freq | cut -f1 > $outdir/session_id.list
-#      for session in `cat $outdir/session_id.list`; do 
-#         grep $session $logfile > $outdir/$session.data
-#         transpose-data.py --elide --delim=' | ' --header=$logfile.header < $outdir/$session.data > $outdir/$session.transpose.data
-#      done
-#    ) > extract-$TOPN-sessions.log 2>&1
 #    
-#------------------------------------------------------------------------
-# Notes:
-# - This was developed to support the analysis done for Ticket #13777 (robot-resilient
-# report for a/b hypothesis tests): see https://trac.juju.com/ticket/13777.
-# - See the ticket for extraction illustration that accounts for impression vs click session id.
-#
-#------------------------------------------------------------------------
 # TODO:
 # - Have option to disable use of labels alltogether.
 # - Have option to prefix values with column number.
