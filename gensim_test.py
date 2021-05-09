@@ -16,9 +16,6 @@
 # TODO:
 # - Use token quoting consistent with Gensim topic display (i.e., double).
 # - Work around quirk requiring the model to be saved prior to similarity calculations.
-# - Address ymeng's review:
-#   After L180, it might be useful to add some comments to show what the arguments/parameters
-#   are. e.g. https://trac.juju.com/browser/juju/posting_store/PostingStore.py#L25
 # 
 
 """Interface into Gensim package for vector-based text analysis (e.g., document similarity)"""
@@ -120,7 +117,7 @@ class UserIdMapping(object):
         """Class constructor"""
         self.docid_mapping = tpo.create_lookup_table(docid_filename, use_linenum=True)
     	# TODO: just use array indexing (e.g., doc_positions = docid_mapping.values())
-        self.reverse_docid_mapping = dict((docid, key) for (key, docid) in self.docid_mapping.items())
+        self.reverse_docid_mapping = dict((docid, key) for (key, docid) in list(self.docid_mapping.items()))
         return
 
     def get_user_id(self, docid):
@@ -171,14 +168,15 @@ class SimilarDocument(object):
 
     def find(self, _docid):
         """"Return documents similar to DOCID; result is a list of tuples: (docid, weight)"""
-        tpo.debug_format("SimilarDocument.find({_docid})", 6)
+        tpo.debug_format("SimilarDocument.find({d}); self={s}", 6,
+                         d=_docid, s=self)
         assert(False)
         return []
 
     def find_all_similar(self):
         """Iterator for getting list of similar documents for each document: each result is a tuple (docid, similar-doc-list), with similar-doc-list a list of (other-docid, weight) tuples"""
         tpo.debug_print("SimilarDocument.find_all_similar", 5)
-        for docid in xrange(len(self.corpus)):
+        for docid in range(len(self.corpus)):
             yield(docid, self.find(docid))
         return
 
@@ -222,6 +220,7 @@ class SimilarDocumentByCosine(SimilarDocument):
 
     def normalize_score(self, score):
         """Normalized from cosine value in range [-1, 1] to probability-type score in range [0, 1])"""
+        # pylint: disable=no-self-use
         MIN_SCORE = -1.0
         MAX_SCORE = 1.0
         EPSILON = 0.001
@@ -262,7 +261,8 @@ def create_dictionary(filename):
     tpo.debug_print("create_dictionary(%s)" % filename, 5)
     dictionary = corpora.Dictionary()
     for line in open(filename):
-        line_tokenized = [w for w in re.split(r"\W+", line)]
+        ## OLD: line_tokenized = [w for w in re.split(r"\W+", line)]
+        line_tokenized = re.split(r"\W+", line)
         dictionary.doc2bow(line_tokenized, allow_update=True)
     return (dictionary)
 
@@ -271,7 +271,7 @@ def resolve_terms(vector, dictionary):
     """Return vector with token ID's replaced by the actual tokens"""
     tpo.debug_print("resolve_terms(%s, %s)" % (vector, dictionary), 7)
     term_vector = [(dictionary[token_id], count) for (token_id, count) in vector]
-    return sorted(term_vector, reverse=True, key=lambda (term, freq): freq)
+    return sorted(term_vector, reverse=True, key=lambda _term, freq: freq)
 
 
 def main():
